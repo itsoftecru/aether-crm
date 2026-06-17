@@ -10,6 +10,7 @@ const ACTIVITY_TYPE_TITLES: Record<ActivityEvent['type'], string> = {
   statusChanged: 'Статус изменён',
   fileUploaded: 'Файл загружен',
   drawingCreated: 'Чертёж создан',
+  documentGenerated: 'Документ сформирован',
 };
 
 function sortEventsByTimestamp(events: ActivityEvent[]): ActivityEvent[] {

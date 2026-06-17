@@ -39,6 +39,12 @@ import {
   Wrench,
 } from 'lucide-react';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
@@ -269,11 +275,11 @@ function SortableDealCard({ deal, index, status, isDragDisabled, children }: Sor
   });
 
   return (
-    <article
+    <Card
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={`card mb-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${
+      className={`mb-3 rounded-2xl p-4 ${
         isDragging ? 'rotate-1 shadow-2xl ring-2 ring-slate-300' : ''
       } ${isDragDisabled ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
       style={{
@@ -282,7 +288,7 @@ function SortableDealCard({ deal, index, status, isDragDisabled, children }: Sor
       }}
     >
       {children}
-    </article>
+    </Card>
   );
 }
 
@@ -408,7 +414,7 @@ export default function HomePage() {
     const stagedEvents: ActivityEvent[] = [];
     const batchTimestamp = Date.now();
 
-    for (const [index, file] of files.entries()) {
+    for (const [index, file] of Array.from(files.entries())) {
       const uploadedAt = new Date(batchTimestamp + index).toISOString();
       const version = getNextFileVersion([...dealFiles, ...stagedFiles], dealId, file.name);
       const savedFile = await crmRepository.addFile({
@@ -642,28 +648,24 @@ export default function HomePage() {
             </div>
           </div>
 
-          <nav className="space-y-2" aria-label="Основная навигация">
+          <ScrollArea className="max-h-[calc(100vh-160px)] pr-1"><nav className="space-y-2" aria-label="Основная навигация">
             {NAVIGATION_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = item.id === activeSection;
 
               return (
-                <button
+                <Button
                   key={item.id}
-                  type="button"
+                  variant={isActive ? 'default' : 'ghost'}
                   onClick={() => setActiveSection(item.id)}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
-                    isActive
-                      ? 'bg-slate-950 text-white shadow-lg shadow-slate-900/15'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-                  }`}
+                  className={`w-full justify-start px-4 py-3 ${isActive ? 'bg-[#2563EB] shadow-lg shadow-blue-700/15' : ''}`}
                 >
                   <Icon className="h-5 w-5" />
                   {item.title}
-                </button>
+                </Button>
               );
             })}
-          </nav>
+          </nav></ScrollArea>
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
@@ -696,9 +698,9 @@ export default function HomePage() {
                       <Bell className="h-4 w-4 text-amber-700" />
                       <h2 className="text-sm font-bold text-slate-950">Уведомления</h2>
                     </div>
-                    <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-amber-700">
+                    <Badge className="border-amber-200 bg-white text-amber-700">
                       {upcomingReminders.length + overdueDeals.length}
-                    </span>
+                    </Badge>
                   </div>
 
                   <div className="space-y-3 text-xs">
@@ -743,6 +745,7 @@ export default function HomePage() {
               </div>
             </div>
           </header>
+          <Separator />
 
           <section className="border-b border-slate-200 bg-white px-5 py-4 sm:px-8">
             <label htmlFor="workspace-search" className="mb-2 block text-sm font-semibold text-slate-700">
@@ -750,13 +753,13 @@ export default function HomePage() {
             </label>
             <div className="relative max-w-3xl">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <input
+              <Input
                 id="workspace-search"
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Введите имя, компанию, телефон, email, номер сделки, название или заметку"
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-200"
+                className="pl-12"
               />
             </div>
             {hasSearchQuery ? (
@@ -769,26 +772,34 @@ export default function HomePage() {
           {activeSection === 'home' ? (
           <section className="border-b border-slate-200 bg-slate-50 px-5 py-6 sm:px-8">
             <div className="grid gap-5 lg:grid-cols-4">
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Сделки</p>
-                <p className="mt-3 text-4xl font-bold text-slate-950">{totalDeals}</p>
-                <p className="mt-2 text-sm text-slate-500">Активный пайплайн по текущему поиску.</p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Клиенты</p>
-                <p className="mt-3 text-4xl font-bold text-slate-950">{filteredClients.length}</p>
-                <p className="mt-2 text-sm text-slate-500">Карточки клиентов в базе CRM.</p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Портфель</p>
-                <p className="mt-3 text-4xl font-bold text-slate-950">{totalValue} ₽</p>
-                <p className="mt-2 text-sm text-slate-500">Суммарная стоимость сделок.</p>
-              </div>
-              <div className="rounded-3xl border border-red-100 bg-red-50 p-5 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-700">Просрочки</p>
-                <p className="mt-3 text-4xl font-bold text-slate-950">{overdueDeals.length}</p>
-                <p className="mt-2 text-sm text-slate-600">Сделки не в статусе «Выполнено» с истекшим сроком.</p>
-              </div>
+              <Card>
+                <CardHeader>
+                  <CardDescription className="font-semibold uppercase tracking-[0.18em]">Сделки</CardDescription>
+                  <CardTitle className="text-4xl">{totalDeals}</CardTitle>
+                </CardHeader>
+                <CardContent><p className="text-sm text-slate-500">Активный пайплайн по текущему поиску.</p></CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription className="font-semibold uppercase tracking-[0.18em]">Клиенты</CardDescription>
+                  <CardTitle className="text-4xl">{filteredClients.length}</CardTitle>
+                </CardHeader>
+                <CardContent><p className="text-sm text-slate-500">Карточки клиентов в базе CRM.</p></CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardDescription className="font-semibold uppercase tracking-[0.18em]">Портфель</CardDescription>
+                  <CardTitle className="text-4xl">{totalValue} ₽</CardTitle>
+                </CardHeader>
+                <CardContent><p className="text-sm text-slate-500">Суммарная стоимость сделок.</p></CardContent>
+              </Card>
+              <Card className="border-red-100 bg-red-50">
+                <CardHeader>
+                  <CardDescription className="font-semibold uppercase tracking-[0.18em] text-red-700">Просрочки</CardDescription>
+                  <CardTitle className="text-4xl">{overdueDeals.length}</CardTitle>
+                </CardHeader>
+                <CardContent><p className="text-sm text-slate-600">Сделки не в статусе «Выполнено» с истекшим сроком.</p></CardContent>
+              </Card>
             </div>
           </section>
           ) : null}
@@ -879,9 +890,9 @@ export default function HomePage() {
                               <p className="font-semibold text-slate-950">{deal.title}</p>
                               <p className="mt-1 text-slate-500">Создано: {deal.createdAt} · Срок: {deal.dueDate}</p>
                             </div>
-                            <span className={`shrink-0 rounded-full border px-2 py-1 text-xs font-bold ${statusStyles[deal.status]}`}>
+                            <Badge variant="outline" className={`shrink-0 ${statusStyles[deal.status]}`}>
                               {STATUS_TITLES[deal.status]}
-                            </span>
+                            </Badge>
                           </div>
                           <p className="mt-2 font-bold text-slate-950">{deal.price}</p>
                         </div>
@@ -941,9 +952,9 @@ export default function HomePage() {
                         <h2 className="font-bold text-slate-950">{STATUS_TITLES[status]}</h2>
                         <p className="text-sm text-slate-500">{columns[status].length} карточек</p>
                       </div>
-                      <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusStyles[status]}`}>
+                      <Badge variant="outline" className={statusStyles[status]}>
                         {STATUS_TITLES[status]}
-                      </span>
+                      </Badge>
                     </div>
 
                     <SortableContext items={columns[status].map((deal) => deal.id)} strategy={verticalListSortingStrategy}>
@@ -1030,13 +1041,12 @@ export default function HomePage() {
                                       </div>
                                       <FolderOpen className="h-5 w-5 text-slate-400" />
                                     </div>
-                                    <button
-                                      type="button"
+                                    <Button
                                       onClick={() => setDrawingDealId(deal.id)}
-                                      className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-700"
+                                      className="w-full"
                                     >
                                       Создать чертеж
-                                    </button>
+                                    </Button>
 
                                     <div className="rounded-2xl border border-slate-200 bg-white p-3">
                                       <div className="mb-3 flex items-center justify-between gap-2">
