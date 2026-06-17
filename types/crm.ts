@@ -1,5 +1,7 @@
 export type DealStatus = 'lead' | 'specApproval' | 'inProgress' | 'done';
 
+export type DocumentKind = 'proposal' | 'contract' | 'invoice' | 'completionAct';
+
 export type DealFile = {
   id: string;
   dealId: string;
@@ -33,7 +35,7 @@ export type DrawingAttachment = {
   svg: string;
 };
 
-export type ActivityEventType = 'dealCreated' | 'statusChanged' | 'fileUploaded' | 'drawingCreated';
+export type ActivityEventType = 'dealCreated' | 'statusChanged' | 'fileUploaded' | 'drawingCreated' | 'documentGenerated';
 
 export type ActivityEvent = {
   id: string;

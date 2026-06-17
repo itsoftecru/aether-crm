@@ -34,7 +34,7 @@ import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DrawingElement, Reminder } from '@/types/crm';
+import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DocumentKind, DrawingElement, Reminder } from '@/types/crm';
 
 type NavigationItem = {
   title: string;
@@ -59,6 +59,21 @@ const NAVIGATION_ITEMS: NavigationItem[] = [
   { title: 'Настройки', icon: Settings },
 ];
 
+
+const DOCUMENT_BUTTONS: { kind: DocumentKind; label: string; filePrefix: string; title: string }[] = [
+  { kind: 'proposal', label: 'КП', filePrefix: 'КП', title: 'Коммерческое предложение' },
+  { kind: 'contract', label: 'Договор', filePrefix: 'Договор', title: 'Договор' },
+  { kind: 'invoice', label: 'Счёт', filePrefix: 'Счёт', title: 'Счёт' },
+  { kind: 'completionAct', label: 'Акт', filePrefix: 'Акт', title: 'Акт выполненных работ' },
+];
+
+const DOCUMENT_TITLES: Record<DocumentKind, string> = DOCUMENT_BUTTONS.reduce(
+  (accumulator, document) => ({
+    ...accumulator,
+    [document.kind]: document.title,
+  }),
+  {} as Record<DocumentKind, string>,
+);
 
 const INITIAL_CLIENTS: Client[] = [
   {
@@ -370,6 +385,45 @@ function formatDate(value: string): string {
   }).format(new Date(`${value}T00:00:00.000Z`));
 }
 
+
+function generateDocumentText(deal: Deal, client: Client, kind: DocumentKind): string {
+  const documentTitle = DOCUMENT_TITLES[kind];
+  const generatedAt = new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date());
+
+  return [
+    documentTitle.toUpperCase(),
+    '',
+    `Номер сделки: ${deal.id}`,
+    `Дата формирования: ${generatedAt}`,
+    '',
+    'Данные клиента',
+    `Клиент: ${client.name}`,
+    `Компания: ${client.company}`,
+    `Телефон: ${client.phone}`,
+    `Email: ${client.email}`,
+    `Адрес: ${client.address}`,
+    '',
+    'Данные сделки',
+    `Название: ${deal.title}`,
+    `Статус: ${STATUS_TITLES[deal.status]}`,
+    `Ответственный: ${deal.owner}`,
+    `Дата создания: ${deal.createdAt}`,
+    `Плановый срок: ${deal.dueDate}`,
+    `Стоимость: ${deal.price}`,
+    '',
+    'Описание и примечания',
+    deal.notes,
+    '',
+    'Документ сформирован автоматически в AetherCRM.',
+  ].join('\n');
+}
+
 function groupDealsByStatus(deals: Deal[]): Record<DealStatus, Deal[]> {
   return DEAL_STATUSES.reduce(
     (accumulator, status) => ({
@@ -525,6 +579,51 @@ export default function HomePage() {
 
       return [...stagedFiles, ...currentFiles];
     });
+  }, []);
+
+
+  const handleGenerateDocument = useCallback((deal: Deal, kind: DocumentKind) => {
+    const client = INITIAL_CLIENTS.find((currentClient) => currentClient.id === deal.clientId);
+
+    if (!client) {
+      return;
+    }
+
+    const documentConfig = DOCUMENT_BUTTONS.find((document) => document.kind === kind);
+    const documentTitle = documentConfig?.title ?? DOCUMENT_TITLES[kind];
+    const fileName = `${documentConfig?.filePrefix ?? documentTitle}_${deal.id}.txt`;
+    const text = generateDocumentText(deal, client, kind);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const previewUrl = URL.createObjectURL(blob);
+    const generatedAt = new Date().toISOString();
+    const timestamp = Date.now();
+
+    objectUrlsRef.current.push(previewUrl);
+
+    setDealFiles((currentFiles) => [
+      {
+        id: `document-file-${deal.id}-${kind}-${timestamp}`,
+        dealId: deal.id,
+        name: fileName,
+        type: 'text/plain',
+        size: blob.size,
+        version: getNextFileVersion(currentFiles, deal.id, fileName),
+        uploadedAt: generatedAt,
+        previewUrl,
+      },
+      ...currentFiles,
+    ]);
+
+    setActivityEvents((currentEvents) => [
+      {
+        id: `activity-document-${deal.id}-${kind}-${timestamp}`,
+        dealId: deal.id,
+        timestamp: generatedAt,
+        type: 'documentGenerated',
+        message: `Сформирован документ «${documentTitle}» и добавлен файл «${fileName}».`,
+      },
+      ...currentEvents,
+    ]);
   }, []);
 
   const handleDrawingSave = useCallback(
@@ -1037,6 +1136,28 @@ export default function HomePage() {
                                     >
                                       Создать чертеж
                                     </button>
+
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                                      <div className="mb-3 flex items-center justify-between gap-2">
+                                        <div>
+                                          <h5 className="text-sm font-bold text-slate-950">Документы</h5>
+                                          <p className="text-xs text-slate-500">Сформировать текстовый файл по сделке</p>
+                                        </div>
+                                        <FileText className="h-5 w-5 text-slate-400" />
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        {DOCUMENT_BUTTONS.map((document) => (
+                                          <button
+                                            key={document.kind}
+                                            type="button"
+                                            onClick={() => handleGenerateDocument(deal, document.kind)}
+                                            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-950"
+                                          >
+                                            {document.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
                                     <FileDropzone dealId={deal.id} onFilesSelected={handleDealFilesSelected} />
                                     <FileList files={dealFiles.filter((file) => file.dealId === deal.id)} />
                                   </section>
