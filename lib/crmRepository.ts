@@ -288,6 +288,9 @@ export interface CrmRepository {
   getDeals(): Promise<Deal[]>;
   getDealFiles(dealId?: string): Promise<DealFile[]>;
   getActivityEvents(): Promise<ActivityEvent[]>;
+  addClient(client: Client): Promise<Client>;
+  updateClient(clientId: string, patch: Partial<Client>): Promise<Client | null>;
+  deleteClient(clientId: string): Promise<boolean>;
   addFile(file: AddDealFileInput): Promise<DealFile>;
   addActivityEvent(event: ActivityEvent): Promise<ActivityEvent>;
   updateDealStatus(dealId: string, status: DealStatus): Promise<Deal | null>;
@@ -392,6 +395,59 @@ export class LocalStorageCrmRepository implements CrmRepository {
 
   async getActivityEvents(): Promise<ActivityEvent[]> {
     return this.readState().activityEvents;
+  }
+
+  async addClient(client: Client): Promise<Client> {
+    const state = this.readState();
+    const normalizedClient = {
+      ...client,
+      messengers: Array.isArray(client.messengers) ? client.messengers : [],
+      communications: Array.isArray(client.communications) ? client.communications : [],
+    };
+
+    state.clients = [normalizedClient, ...state.clients.filter((currentClient) => currentClient.id !== client.id)];
+    this.writeState(state);
+    return normalizedClient;
+  }
+
+  async updateClient(clientId: string, patch: Partial<Client>): Promise<Client | null> {
+    const state = this.readState();
+    let updatedClient: Client | null = null;
+
+    state.clients = state.clients.map((client) => {
+      if (client.id !== clientId) return client;
+      updatedClient = {
+        ...client,
+        ...patch,
+        id: client.id,
+        messengers: patch.messengers ?? client.messengers,
+        communications: patch.communications ?? client.communications,
+      };
+      return updatedClient;
+    });
+
+    if (!updatedClient) {
+      return null;
+    }
+
+    state.deals = state.deals.map((deal) => (
+      deal.clientId === clientId ? { ...deal, client: updatedClient?.name ?? deal.client } : deal
+    ));
+    this.writeState(state);
+    return updatedClient;
+  }
+
+  async deleteClient(clientId: string): Promise<boolean> {
+    const state = this.readState();
+    const hasRelatedDeals = state.deals.some((deal) => deal.clientId === clientId);
+
+    if (hasRelatedDeals || !state.clients.some((client) => client.id === clientId)) {
+      return false;
+    }
+
+    state.clients = state.clients.filter((client) => client.id !== clientId);
+    this.writeState(state);
+    return true;
   }
 
   async addFile(file: AddDealFileInput): Promise<DealFile> {
