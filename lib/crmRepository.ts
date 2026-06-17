@@ -1,3 +1,4 @@
+import { createEmptyDealFinancials } from '@/lib/dealFinancials';
 import type { ActivityEvent, Client, Deal, DealFile, DealStatus, Reminder } from '@/types/crm';
 
 export const INITIAL_CLIENTS: Client[] = [
@@ -144,6 +145,9 @@ export const INITIAL_DEALS: Deal[] = [
     owner: 'Мария Орлова',
     dueDate: '2026-07-12',
     price: '420 000 ₽',
+    revenue: 420000,
+    currency: 'RUB',
+    financials: createEmptyDealFinancials(),
     notes: 'Клиент просит предусмотреть встроенную подсветку и скрытые ручки.',
   },
   {
@@ -156,6 +160,9 @@ export const INITIAL_DEALS: Deal[] = [
     owner: 'Олег Романов',
     dueDate: '2026-06-15',
     price: '185 000 ₽',
+    revenue: 185000,
+    currency: 'RUB',
+    financials: createEmptyDealFinancials(),
     notes: 'Нужно уточнить глубину секций после повторного замера помещения.',
   },
   {
@@ -168,6 +175,9 @@ export const INITIAL_DEALS: Deal[] = [
     owner: 'Екатерина Волкова',
     dueDate: '2026-07-05',
     price: '760 000 ₽',
+    revenue: 760000,
+    currency: 'RUB',
+    financials: createEmptyDealFinancials(),
     notes: 'Чертежи утверждены, материалы зарезервированы на складе.',
   },
   {
@@ -180,6 +190,9 @@ export const INITIAL_DEALS: Deal[] = [
     owner: 'Мария Орлова',
     dueDate: '2026-06-30',
     price: '315 000 ₽',
+    revenue: 315000,
+    currency: 'RUB',
+    financials: createEmptyDealFinancials(),
     notes: 'Проверить безопасность фурнитуры и согласовать палитру фасадов.',
   },
   {
@@ -192,6 +205,9 @@ export const INITIAL_DEALS: Deal[] = [
     owner: 'Олег Романов',
     dueDate: '2026-06-14',
     price: '540 000 ₽',
+    revenue: 540000,
+    currency: 'RUB',
+    financials: createEmptyDealFinancials(),
     notes: 'Заказ смонтирован, акты подписаны, ожидается финальная оплата.',
   },
 ];
@@ -319,10 +335,34 @@ function isBrowserStorageAvailable(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
+
+function parseDealRevenue(price: string): number {
+  return Number(price.replace(/[^\d.-]/g, '')) || 0;
+}
+
+function normalizeDealFinancials(deal: Partial<Deal>): Deal['financials'] {
+  return {
+    ...createEmptyDealFinancials(),
+    ...(deal.financials ?? {}),
+  };
+}
+
+function normalizeDealFinancialFields(deal: Deal): Deal {
+  const revenue = Number(deal.revenue) || parseDealRevenue(deal.price ?? '');
+
+  return {
+    ...deal,
+    price: deal.price || `${revenue.toLocaleString('ru-RU')} ₽`,
+    revenue,
+    currency: deal.currency ?? 'RUB',
+    financials: normalizeDealFinancials(deal),
+  };
+}
+
 function createInitialState(): CrmState {
   return {
     clients: INITIAL_CLIENTS,
-    deals: INITIAL_DEALS,
+    deals: INITIAL_DEALS.map(normalizeDealFinancialFields),
     dealFiles: INITIAL_DEAL_FILES.map((file) => ({ ...file, storageKey: null })),
     activityEvents: INITIAL_ACTIVITY_EVENTS,
   };
@@ -335,7 +375,12 @@ function safeParseState(value: string | null): CrmState | null {
     if (!Array.isArray(parsed.clients) || !Array.isArray(parsed.deals) || !Array.isArray(parsed.dealFiles) || !Array.isArray(parsed.activityEvents)) {
       return null;
     }
-    return parsed as CrmState;
+    return {
+      clients: parsed.clients,
+      deals: parsed.deals.map((deal) => normalizeDealFinancialFields(deal as Deal)),
+      dealFiles: parsed.dealFiles,
+      activityEvents: parsed.activityEvents,
+    };
   } catch {
     return null;
   }
@@ -410,6 +455,9 @@ export class LocalStorageCrmRepository implements CrmRepository {
       client: client?.name ?? deal.client.trim(),
       owner: deal.owner.trim(),
       price: deal.price.trim(),
+      revenue: Number(deal.revenue) || parseDealRevenue(deal.price),
+      currency: deal.currency ?? 'RUB',
+      financials: normalizeDealFinancials(deal),
       notes: deal.notes.trim(),
     };
 
@@ -434,6 +482,7 @@ export class LocalStorageCrmRepository implements CrmRepository {
         clientId: nextClientId,
         client: nextClient?.name ?? patch.client ?? deal.client,
       };
+      updatedDeal = normalizeDealFinancialFields(updatedDeal);
       return updatedDeal;
     });
 
