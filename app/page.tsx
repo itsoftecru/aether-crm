@@ -68,6 +68,8 @@ type NavigationItem = {
 type ClientFormValues = Pick<Client, 'name' | 'company' | 'phone' | 'email' | 'messengers' | 'address' | 'comments'>;
 
 type ClientFormMode = 'create' | 'edit' | null;
+type DealFormMode = 'create' | 'edit' | null;
+type DealFormValues = Pick<Deal, 'title' | 'clientId' | 'status' | 'owner' | 'dueDate' | 'price' | 'notes'>;
 
 const EMPTY_CLIENT_FORM: ClientFormValues = {
   name: '',
@@ -137,6 +139,57 @@ function parseMessengersInput(value: string): string[] {
   return value.split(',').map((messenger) => messenger.trim()).filter(Boolean);
 }
 
+
+const EMPTY_DEAL_FORM: DealFormValues = {
+  title: '',
+  clientId: '',
+  status: 'lead',
+  owner: '',
+  dueDate: '',
+  price: '',
+  notes: '',
+};
+
+function createDealFormValues(deal?: Deal | null, fallbackClientId = ''): DealFormValues {
+  if (!deal) {
+    return { ...EMPTY_DEAL_FORM, clientId: fallbackClientId };
+  }
+
+  return {
+    title: deal.title,
+    clientId: deal.clientId,
+    status: deal.status,
+    owner: deal.owner,
+    dueDate: deal.dueDate,
+    price: deal.price,
+    notes: deal.notes,
+  };
+}
+
+function normalizeDealFormValues(values: DealFormValues): DealFormValues {
+  return {
+    title: values.title.trim(),
+    clientId: values.clientId.trim(),
+    status: values.status,
+    owner: values.owner.trim(),
+    dueDate: values.dueDate.trim(),
+    price: values.price.trim(),
+    notes: values.notes.trim(),
+  };
+}
+
+function validateDealForm(values: DealFormValues, clients: Client[]): string | null {
+  const normalizedValues = normalizeDealFormValues(values);
+
+  if (!normalizedValues.title) return 'Укажите название сделки.';
+  if (!normalizedValues.clientId || !clients.some((client) => client.id === normalizedValues.clientId)) return 'Выберите клиента из базы.';
+  if (!DEAL_STATUSES.includes(normalizedValues.status)) return 'Выберите корректный статус сделки.';
+  if (!normalizedValues.owner) return 'Укажите ответственного менеджера.';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValues.dueDate)) return 'Укажите плановый срок в формате даты.';
+  if (!normalizedValues.price) return 'Укажите стоимость сделки.';
+
+  return null;
+}
 
 const DEAL_STATUSES: DealStatus[] = ['lead', 'specApproval', 'inProgress', 'done'];
 
@@ -382,6 +435,10 @@ export default function HomePage() {
   const [clientFormMode, setClientFormMode] = useState<ClientFormMode>(null);
   const [clientFormValues, setClientFormValues] = useState<ClientFormValues>(EMPTY_CLIENT_FORM);
   const [clientFormError, setClientFormError] = useState<string | null>(null);
+  const [dealFormMode, setDealFormMode] = useState<DealFormMode>(null);
+  const [editingDealId, setEditingDealId] = useState<string | null>(null);
+  const [dealFormValues, setDealFormValues] = useState<DealFormValues>(() => createDealFormValues(null, INITIAL_CLIENTS[0]?.id ?? ''));
+  const [dealFormError, setDealFormError] = useState<string | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
 
   const normalizedSearchQuery = searchQuery.toLowerCase().trim();
@@ -774,6 +831,113 @@ export default function HomePage() {
       closeClientForm();
     }
   }, [clientFormMode, clientFormValues, closeClientForm, selectedClient]);
+
+  const closeDealForm = useCallback(() => {
+    setDealFormMode(null);
+    setEditingDealId(null);
+    setDealFormValues(createDealFormValues(null, clients[0]?.id ?? ''));
+    setDealFormError(null);
+  }, [clients]);
+
+  const openCreateDealForm = useCallback(() => {
+    setDealFormMode('create');
+    setEditingDealId(null);
+    setDealFormValues(createDealFormValues(null, selectedClient?.id ?? clients[0]?.id ?? ''));
+    setDealFormError(null);
+  }, [clients, selectedClient]);
+
+  const openEditDealForm = useCallback((deal: Deal) => {
+    setDealFormMode('edit');
+    setEditingDealId(deal.id);
+    setDealFormValues(createDealFormValues(deal));
+    setDealFormError(null);
+  }, []);
+
+  const updateDealFormField = useCallback((field: keyof DealFormValues, value: string) => {
+    setDealFormValues((currentValues) => ({
+      ...currentValues,
+      [field]: field === 'status' ? value as DealStatus : value,
+    }));
+    setDealFormError(null);
+  }, []);
+
+  const handleDealFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const validationError = validateDealForm(dealFormValues, clients);
+
+    if (validationError) {
+      setDealFormError(validationError);
+      return;
+    }
+
+    const normalizedValues = normalizeDealFormValues(dealFormValues);
+    const client = clients.find((currentClient) => currentClient.id === normalizedValues.clientId);
+
+    if (!client) {
+      setDealFormError('Клиент не найден. Обновите страницу и повторите операцию.');
+      return;
+    }
+
+    if (dealFormMode === 'create') {
+      const timestamp = Date.now();
+      const createdAt = toDateKey(new Date());
+      const createdDeal = await crmRepository.addDeal({
+        id: `deal-${timestamp}`,
+        ...normalizedValues,
+        client: client.name,
+        createdAt,
+      });
+      const activityEvent: ActivityEvent = {
+        id: `activity-${createdDeal.id}-created-${timestamp}`,
+        dealId: createdDeal.id,
+        timestamp: new Date().toISOString(),
+        type: 'dealCreated',
+        message: `Создана сделка «${createdDeal.title}» для клиента ${createdDeal.client}.`,
+      };
+
+      await crmRepository.addActivityEvent(activityEvent);
+      setDeals((currentDeals) => [createdDeal, ...currentDeals]);
+      setActivityEvents((currentEvents) => [activityEvent, ...currentEvents]);
+      closeDealForm();
+      return;
+    }
+
+    if (dealFormMode === 'edit' && editingDealId) {
+      const updatedDeal = await crmRepository.updateDeal(editingDealId, {
+        ...normalizedValues,
+        client: client.name,
+      });
+
+      if (!updatedDeal) {
+        setDealFormError('Сделка не найдена. Обновите страницу и повторите операцию.');
+        return;
+      }
+
+      setDeals((currentDeals) => currentDeals.map((deal) => deal.id === updatedDeal.id ? updatedDeal : deal));
+      closeDealForm();
+    }
+  }, [clients, closeDealForm, dealFormMode, dealFormValues, editingDealId]);
+
+  const handleDeleteDeal = useCallback(async (deal: Deal) => {
+    const isConfirmed = window.confirm(`Удалить сделку «${deal.title}»? Связанные файлы и события активности будут удалены.`);
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    const isDeleted = await crmRepository.deleteDeal(deal.id);
+
+    if (!isDeleted) {
+      window.alert('Сделка не была удалена. Обновите страницу и повторите операцию.');
+      return;
+    }
+
+    setDeals((currentDeals) => currentDeals.filter((currentDeal) => currentDeal.id !== deal.id));
+    setDealFiles((currentFiles) => currentFiles.filter((file) => file.dealId !== deal.id));
+    setActivityEvents((currentEvents) => currentEvents.filter((activityEvent) => activityEvent.dealId !== deal.id));
+    if (editingDealId === deal.id) closeDealForm();
+    if (drawingDealId === deal.id) setDrawingDealId(null);
+  }, [closeDealForm, drawingDealId, editingDealId]);
 
   const handleDeleteClient = useCallback(async (client: Client) => {
     const relatedDeals = deals.filter((deal) => deal.clientId === client.id);
@@ -1181,7 +1345,64 @@ export default function HomePage() {
           )) : null}
 
           {activeSection === 'deals' ? (
-          <div className="flex-1 overflow-x-auto px-5 py-6 sm:px-8">
+          <div className="flex-1 px-5 py-6 sm:px-8">
+            <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-950">Сделки</h2>
+                  <p className="mt-1 text-sm text-slate-500">Создавайте, редактируйте и удаляйте карточки сделок в пайплайне.</p>
+                </div>
+                <Button type="button" onClick={openCreateDealForm}>
+                  <Plus className="h-4 w-4" />
+                  Создать сделку
+                </Button>
+              </div>
+
+              {dealFormMode ? (
+                <form onSubmit={handleDealFormSubmit} className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-slate-950">{dealFormMode === 'create' ? 'Создание сделки' : 'Редактирование сделки'}</h3>
+                      <p className="mt-1 text-sm text-slate-600">При выборе клиента название клиента в сделке заполняется автоматически.</p>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={closeDealForm} aria-label="Закрыть форму сделки">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Input value={dealFormValues.title} onChange={(event) => updateDealFormField('title', event.target.value)} placeholder="Название сделки *" />
+                    <select value={dealFormValues.clientId} onChange={(event) => updateDealFormField('clientId', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
+                      <option value="">Выберите клиента *</option>
+                      {clients.map((client) => (
+                        <option key={client.id} value={client.id}>{client.name} · {client.company}</option>
+                      ))}
+                    </select>
+                    <select value={dealFormValues.status} onChange={(event) => updateDealFormField('status', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
+                      {DEAL_STATUSES.map((status) => (
+                        <option key={status} value={status}>{STATUS_TITLES[status]}</option>
+                      ))}
+                    </select>
+                    <Input value={dealFormValues.owner} onChange={(event) => updateDealFormField('owner', event.target.value)} placeholder="Ответственный *" />
+                    <Input type="date" value={dealFormValues.dueDate} onChange={(event) => updateDealFormField('dueDate', event.target.value)} />
+                    <Input value={dealFormValues.price} onChange={(event) => updateDealFormField('price', event.target.value)} placeholder="Стоимость *" />
+                    <textarea value={dealFormValues.notes} onChange={(event) => updateDealFormField('notes', event.target.value)} placeholder="Заметки" className="min-h-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 md:col-span-2" />
+                  </div>
+                  {dealFormValues.clientId ? (
+                    <p className="mt-3 text-sm text-slate-600">Клиент в карточке сделки: <span className="font-semibold text-slate-950">{clients.find((client) => client.id === dealFormValues.clientId)?.name ?? 'не найден'}</span></p>
+                  ) : null}
+                  {dealFormError ? <p className="mt-3 text-sm font-semibold text-red-700">{dealFormError}</p> : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button type="submit">
+                      <Save className="h-4 w-4" />
+                      {dealFormMode === 'create' ? 'Создать сделку' : 'Сохранить изменения'}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={closeDealForm}>Отмена</Button>
+                  </div>
+                </form>
+              ) : null}
+            </div>
+
+            <div className="overflow-x-auto">
             <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleKanbanDragEnd}>
               <div className="grid min-w-[1120px] grid-cols-4 gap-5">
                 {DEAL_STATUSES.map((status) => (
@@ -1222,6 +1443,17 @@ export default function HomePage() {
                                       </button>
                                     </div>
                                     <CheckCircle2 className="mt-1 h-5 w-5 text-slate-300" />
+                                  </div>
+
+                                  <div className="mb-3 flex flex-wrap gap-2">
+                                    <Button type="button" variant="outline" size="sm" onPointerDown={(event) => event.stopPropagation()} onClick={() => openEditDealForm(deal)} className="h-8">
+                                      <Pencil className="h-4 w-4" />
+                                      Редактировать
+                                    </Button>
+                                    <Button type="button" variant="outline" size="sm" onPointerDown={(event) => event.stopPropagation()} onClick={() => handleDeleteDeal(deal)} className="h-8 border-red-200 text-red-700 hover:bg-red-50">
+                                      <Trash2 className="h-4 w-4" />
+                                      Удалить
+                                    </Button>
                                   </div>
 
                                   <dl className="space-y-2 text-sm text-slate-600">
@@ -1321,6 +1553,7 @@ export default function HomePage() {
                 ))}
               </div>
             </DndContext>
+            </div>
           </div>
           ) : null}
 
