@@ -55,7 +55,16 @@ import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
 import { crmRepository, INITIAL_CLIENTS, INITIAL_DEALS, INITIAL_DEAL_FILES, INITIAL_ACTIVITY_EVENTS, INITIAL_REMINDERS } from '@/lib/crmRepository';
-import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DocumentKind, DrawingElement } from '@/types/crm';
+import {
+  DEAL_COST_CATEGORIES,
+  DEAL_COST_CATEGORY_TITLES,
+  calculateDealCostItemTotal,
+  calculateDealExpenses,
+  calculateDealMarginPercent,
+  calculateDealNetProfit,
+  createEmptyDealFinancials,
+} from '@/lib/dealFinancials';
+import type { ActivityEvent, Client, Deal, DealCostCategory, DealCostItem, DealFile, DealFinancials, DealStatus, DocumentKind, DrawingElement } from '@/types/crm';
 
 type ActiveSection = 'home' | 'clients' | 'deals' | 'drawings' | 'files' | 'settings';
 
@@ -69,7 +78,7 @@ type ClientFormValues = Pick<Client, 'name' | 'company' | 'phone' | 'email' | 'm
 
 type ClientFormMode = 'create' | 'edit' | null;
 type DealFormMode = 'create' | 'edit' | null;
-type DealFormValues = Pick<Deal, 'title' | 'clientId' | 'status' | 'owner' | 'dueDate' | 'price' | 'notes'>;
+type DealFormValues = Pick<Deal, 'title' | 'clientId' | 'status' | 'owner' | 'dueDate' | 'price' | 'revenue' | 'currency' | 'financials' | 'notes'>;
 
 const EMPTY_CLIENT_FORM: ClientFormValues = {
   name: '',
@@ -147,6 +156,9 @@ const EMPTY_DEAL_FORM: DealFormValues = {
   owner: '',
   dueDate: '',
   price: '',
+  revenue: 0,
+  currency: 'RUB',
+  financials: createEmptyDealFinancials(),
   notes: '',
 };
 
@@ -162,6 +174,9 @@ function createDealFormValues(deal?: Deal | null, fallbackClientId = ''): DealFo
     owner: deal.owner,
     dueDate: deal.dueDate,
     price: deal.price,
+    revenue: deal.revenue,
+    currency: deal.currency,
+    financials: normalizeDealFinancials(deal.financials),
     notes: deal.notes,
   };
 }
@@ -174,6 +189,9 @@ function normalizeDealFormValues(values: DealFormValues): DealFormValues {
     owner: values.owner.trim(),
     dueDate: values.dueDate.trim(),
     price: values.price.trim(),
+    revenue: Number(values.revenue) || 0,
+    currency: 'RUB',
+    financials: normalizeDealFinancials(values.financials),
     notes: values.notes.trim(),
   };
 }
@@ -186,7 +204,7 @@ function validateDealForm(values: DealFormValues, clients: Client[]): string | n
   if (!DEAL_STATUSES.includes(normalizedValues.status)) return 'Выберите корректный статус сделки.';
   if (!normalizedValues.owner) return 'Укажите ответственного менеджера.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValues.dueDate)) return 'Укажите плановый срок в формате даты.';
-  if (!normalizedValues.price) return 'Укажите стоимость сделки.';
+  if (normalizedValues.revenue <= 0) return 'Укажите положительную выручку сделки.';
 
   return null;
 }
@@ -253,6 +271,33 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
+}
+
+function formatPercent(value: number): string {
+  return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+function normalizeDealFinancials(financials?: Partial<DealFinancials>): DealFinancials {
+  return DEAL_COST_CATEGORIES.reduce((result, category) => ({
+    ...result,
+    [category]: financials?.[category] ?? [],
+  }), {} as DealFinancials);
+}
+
+function createDealCostItem(category: DealCostCategory): DealCostItem {
+  return {
+    id: `cost-${category}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    category,
+    title: '',
+    amount: 0,
+    hours: category === 'employeeLabor' ? 0 : undefined,
+    hourlyRate: category === 'employeeLabor' ? 0 : undefined,
+    comment: '',
+  };
+}
+
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
@@ -291,7 +336,7 @@ function generateDocumentText(deal: Deal, client: Client, kind: DocumentKind): s
     `Ответственный: ${deal.owner}`,
     `Дата создания: ${deal.createdAt}`,
     `Плановый срок: ${deal.dueDate}`,
-    `Стоимость: ${deal.price}`,
+    `Выручка: ${formatCurrency(deal.revenue)}`,
     '',
     'Описание и примечания',
     deal.notes,
@@ -520,7 +565,7 @@ export default function HomePage() {
 
   const totalValue = useMemo(() => {
     return allDeals
-      .reduce((sum, deal) => sum + Number(deal.price.replace(/[^\d]/g, '')), 0)
+      .reduce((sum, deal) => sum + deal.revenue, 0)
       .toLocaleString('ru-RU');
   }, [allDeals]);
 
@@ -856,7 +901,45 @@ export default function HomePage() {
   const updateDealFormField = useCallback((field: keyof DealFormValues, value: string) => {
     setDealFormValues((currentValues) => ({
       ...currentValues,
-      [field]: field === 'status' ? value as DealStatus : value,
+      [field]: field === 'status' ? value as DealStatus : field === 'revenue' ? Number(value) || 0 : value,
+      price: field === 'revenue' ? `${(Number(value) || 0).toLocaleString('ru-RU')} ₽` : currentValues.price,
+    }));
+    setDealFormError(null);
+  }, []);
+
+  const addDealCostItem = useCallback((category: DealCostCategory) => {
+    setDealFormValues((currentValues) => ({
+      ...currentValues,
+      financials: {
+        ...currentValues.financials,
+        [category]: [...currentValues.financials[category], createDealCostItem(category)],
+      },
+    }));
+    setDealFormError(null);
+  }, []);
+
+  const updateDealCostItem = useCallback((category: DealCostCategory, itemId: string, patch: Partial<DealCostItem>) => {
+    setDealFormValues((currentValues) => ({
+      ...currentValues,
+      financials: {
+        ...currentValues.financials,
+        [category]: currentValues.financials[category].map((item) => {
+          if (item.id !== itemId) return item;
+          const updatedItem = { ...item, ...patch, category };
+          return { ...updatedItem, amount: calculateDealCostItemTotal(updatedItem) };
+        }),
+      },
+    }));
+    setDealFormError(null);
+  }, []);
+
+  const removeDealCostItem = useCallback((category: DealCostCategory, itemId: string) => {
+    setDealFormValues((currentValues) => ({
+      ...currentValues,
+      financials: {
+        ...currentValues.financials,
+        [category]: currentValues.financials[category].filter((item) => item.id !== itemId),
+      },
     }));
     setDealFormError(null);
   }, []);
@@ -884,6 +967,7 @@ export default function HomePage() {
       const createdDeal = await crmRepository.addDeal({
         id: `deal-${timestamp}`,
         ...normalizedValues,
+        price: formatCurrency(normalizedValues.revenue),
         client: client.name,
         createdAt,
       });
@@ -905,6 +989,7 @@ export default function HomePage() {
     if (dealFormMode === 'edit' && editingDealId) {
       const updatedDeal = await crmRepository.updateDeal(editingDealId, {
         ...normalizedValues,
+        price: formatCurrency(normalizedValues.revenue),
         client: client.name,
       });
 
@@ -1297,7 +1382,7 @@ export default function HomePage() {
                               {STATUS_TITLES[deal.status]}
                             </Badge>
                           </div>
-                          <p className="mt-2 font-bold text-slate-950">{deal.price}</p>
+                          <p className="mt-2 font-bold text-slate-950">{formatCurrency(deal.revenue)}</p>
                         </div>
                       ))}
                     </div>
@@ -1384,9 +1469,57 @@ export default function HomePage() {
                     </select>
                     <Input value={dealFormValues.owner} onChange={(event) => updateDealFormField('owner', event.target.value)} placeholder="Ответственный *" />
                     <Input type="date" value={dealFormValues.dueDate} onChange={(event) => updateDealFormField('dueDate', event.target.value)} />
-                    <Input value={dealFormValues.price} onChange={(event) => updateDealFormField('price', event.target.value)} placeholder="Стоимость *" />
+                    <Input type="number" min="0" step="100" value={dealFormValues.revenue || ''} onChange={(event) => updateDealFormField('revenue', event.target.value)} placeholder="Выручка, ₽ *" />
                     <textarea value={dealFormValues.notes} onChange={(event) => updateDealFormField('notes', event.target.value)} placeholder="Заметки" className="min-h-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 md:col-span-2" />
                   </div>
+
+                  <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h4 className="font-bold text-slate-950">Расходы по гибке тонколистового металла</h4>
+                        <p className="text-sm text-slate-600">Добавляйте несколько строк внутри каждой категории сметы.</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-950">
+                        Итого расходов: {formatCurrency(calculateDealExpenses(dealFormValues.financials))}
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      {DEAL_COST_CATEGORIES.map((category) => (
+                        <div key={category} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-slate-950">{DEAL_COST_CATEGORY_TITLES[category]}</p>
+                              <p className="text-xs text-slate-500">{dealFormValues.financials[category].length} строк расходов</p>
+                            </div>
+                            <Button type="button" variant="outline" size="sm" onClick={() => addDealCostItem(category)}>
+                              <Plus className="h-4 w-4" />
+                              Добавить строку
+                            </Button>
+                          </div>
+                          <div className="space-y-3">
+                            {dealFormValues.financials[category].map((item) => (
+                              <div key={item.id} className="grid gap-2 rounded-xl bg-white p-3 md:grid-cols-12">
+                                <Input value={item.title} onChange={(event) => updateDealCostItem(category, item.id, { title: event.target.value })} placeholder="Наименование" className="md:col-span-3" />
+                                {category === 'employeeLabor' ? (
+                                  <>
+                                    <Input type="number" min="0" step="0.5" value={item.hours ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hours: Number(event.target.value) || 0 })} placeholder="Часы" className="md:col-span-2" />
+                                    <Input type="number" min="0" step="100" value={item.hourlyRate ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hourlyRate: Number(event.target.value) || 0 })} placeholder="Ставка, ₽/ч" className="md:col-span-2" />
+                                    <Input value={formatCurrency(calculateDealCostItemTotal(item))} readOnly className="md:col-span-2" />
+                                  </>
+                                ) : (
+                                  <Input type="number" min="0" step="100" value={item.amount || ''} onChange={(event) => updateDealCostItem(category, item.id, { amount: Number(event.target.value) || 0 })} placeholder="Сумма, ₽" className="md:col-span-3" />
+                                )}
+                                <Input value={item.comment ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { comment: event.target.value })} placeholder="Комментарий" className={category === 'employeeLabor' ? 'md:col-span-2' : 'md:col-span-5'} />
+                                <Button type="button" variant="outline" size="sm" onClick={() => removeDealCostItem(category, item.id)} className="border-red-200 text-red-700 hover:bg-red-50 md:col-span-1">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                   {dealFormValues.clientId ? (
                     <p className="mt-3 text-sm text-slate-600">Клиент в карточке сделки: <span className="font-semibold text-slate-950">{clients.find((client) => client.id === dealFormValues.clientId)?.name ?? 'не найден'}</span></p>
                   ) : null}
@@ -1488,9 +1621,21 @@ export default function HomePage() {
                                     <div className="flex items-center justify-between gap-3">
                                       <dt className="flex items-center gap-2">
                                         <CircleDollarSign className="h-4 w-4" />
-                                        Стоимость
+                                        Выручка
                                       </dt>
-                                      <dd className="font-bold text-slate-950">{deal.price}</dd>
+                                      <dd className="font-bold text-slate-950">{formatCurrency(deal.revenue)}</dd>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <dt>Расходы</dt>
+                                      <dd className="font-medium text-slate-900">{formatCurrency(calculateDealExpenses(deal.financials))}</dd>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <dt>Чистая прибыль</dt>
+                                      <dd className="font-medium text-emerald-700">{formatCurrency(calculateDealNetProfit(deal.revenue, deal.financials))}</dd>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <dt>Маржинальность</dt>
+                                      <dd className="font-medium text-slate-900">{formatPercent(calculateDealMarginPercent(deal.revenue, calculateDealNetProfit(deal.revenue, deal.financials)))}</dd>
                                     </div>
                                   </dl>
 

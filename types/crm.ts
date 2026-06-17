@@ -1,5 +1,26 @@
 export type DealStatus = 'lead' | 'specApproval' | 'inProgress' | 'done';
 
+export type DealCostCategory =
+  | 'rawMaterial'
+  | 'factoryLoading'
+  | 'workshopDelivery'
+  | 'employeeLabor'
+  | 'paintShopLogistics'
+  | 'painting'
+  | 'other';
+
+export type DealCostItem = {
+  id: string;
+  category: DealCostCategory;
+  title: string;
+  amount: number;
+  hours?: number;
+  hourlyRate?: number;
+  comment?: string;
+};
+
+export type DealFinancials = Record<DealCostCategory, DealCostItem[]>;
+
 export type DocumentKind = 'proposal' | 'contract' | 'invoice' | 'completionAct';
 
 export type DealFile = {
@@ -55,6 +76,9 @@ export type Deal = {
   owner: string;
   dueDate: string;
   price: string;
+  revenue: number;
+  currency: 'RUB';
+  financials: DealFinancials;
   notes: string;
 };
 
