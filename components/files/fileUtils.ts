@@ -1,6 +1,6 @@
 import type { DealFile } from '@/types/crm';
 
-export const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.dwg', '.dxf', '.jpg', '.jpeg', '.png', '.docx', '.zip'] as const;
+export const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.dwg', '.dxf', '.svg', '.jpg', '.jpeg', '.png', '.docx', '.zip'] as const;
 
 export function getFileExtension(fileName: string): string {
   const normalizedName = fileName.trim().toLowerCase();
@@ -43,7 +43,7 @@ export function getNextFileVersion(files: DealFile[], dealId: string, fileName: 
 }
 
 export function isPreviewableImage(file: DealFile): boolean {
-  return ['.jpg', '.jpeg', '.png'].includes(getFileExtension(file.name)) || file.type.startsWith('image/');
+  return ['.svg', '.jpg', '.jpeg', '.png'].includes(getFileExtension(file.name)) || file.type.startsWith('image/');
 }
 
 export function isPreviewablePdf(file: DealFile): boolean {
