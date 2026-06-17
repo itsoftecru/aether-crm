@@ -26,11 +26,12 @@ import {
   UsersRound,
   Wrench,
 } from 'lucide-react';
+import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
 import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import type { Client, Deal, DealFile, DealStatus, DealTimelineEvent, DrawingElement } from '@/types/crm';
+import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DrawingElement } from '@/types/crm';
 
 type NavigationItem = {
   title: string;
@@ -276,13 +277,27 @@ const INITIAL_DEAL_FILES: DealFile[] = [
   },
 ];
 
-const INITIAL_DEAL_TIMELINE_EVENTS: DealTimelineEvent[] = [
+const INITIAL_ACTIVITY_EVENTS: ActivityEvent[] = [
+  ...INITIAL_DEALS.map((deal) => ({
+    id: `activity-${deal.id}-created`,
+    dealId: deal.id,
+    timestamp: `${deal.createdAt}T09:00:00.000Z`,
+    type: 'dealCreated' as const,
+    message: `Создана сделка «${deal.title}» для клиента ${deal.client}.`,
+  })),
+  ...INITIAL_DEAL_FILES.map((file) => ({
+    id: `activity-${file.id}-uploaded`,
+    dealId: file.dealId,
+    timestamp: file.uploadedAt,
+    type: 'fileUploaded' as const,
+    message: `Загружен файл «${file.name}» версии ${file.version}.`,
+  })),
   {
-    id: 'timeline-deal-003-001',
+    id: 'activity-deal-003-drawing-approved',
     dealId: 'deal-003',
-    title: 'Утверждены чертежи',
-    createdAt: '2026-06-10T13:45:00.000Z',
-    description: 'Менеджер приложил план переговорной и зафиксировал согласование с клиентом.',
+    timestamp: '2026-06-10T13:45:00.000Z',
+    type: 'drawingCreated',
+    message: 'Создан и приложен чертёж переговорной, согласование с клиентом зафиксировано.',
   },
 ];
 
@@ -341,7 +356,7 @@ export default function HomePage() {
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
-  const [dealTimelineEvents, setDealTimelineEvents] = useState<DealTimelineEvent[]>(INITIAL_DEAL_TIMELINE_EVENTS);
+  const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_EVENTS);
   const [drawingDealId, setDrawingDealId] = useState<string | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
 
@@ -371,21 +386,37 @@ export default function HomePage() {
   const handleDealFilesSelected = useCallback((dealId: string, files: File[]) => {
     setDealFiles((currentFiles) => {
       const stagedFiles: DealFile[] = [];
+      const stagedEvents: ActivityEvent[] = [];
+      const batchTimestamp = Date.now();
 
       files.forEach((file, index) => {
         const previewUrl = URL.createObjectURL(file);
+        const uploadedAt = new Date(batchTimestamp + index).toISOString();
+        const version = getNextFileVersion([...currentFiles, ...stagedFiles], dealId, file.name);
+
         objectUrlsRef.current.push(previewUrl);
         stagedFiles.push({
-          id: `file-${dealId}-${Date.now()}-${index}`,
+          id: `file-${dealId}-${batchTimestamp}-${index}`,
           dealId,
           name: file.name,
           type: file.type || 'application/octet-stream',
           size: file.size,
-          version: getNextFileVersion([...currentFiles, ...stagedFiles], dealId, file.name),
-          uploadedAt: new Date().toISOString(),
+          version,
+          uploadedAt,
           previewUrl,
         });
+        stagedEvents.push({
+          id: `activity-file-${dealId}-${batchTimestamp}-${index}`,
+          dealId,
+          timestamp: uploadedAt,
+          type: 'fileUploaded',
+          message: `Загружен файл «${file.name}» версии ${version}.`,
+        });
       });
+
+      if (stagedEvents.length > 0) {
+        setActivityEvents((currentEvents) => [...stagedEvents, ...currentEvents]);
+      }
 
       return [...stagedFiles, ...currentFiles];
     });
@@ -416,13 +447,13 @@ export default function HomePage() {
         ...currentFiles,
       ]);
 
-      setDealTimelineEvents((currentEvents) => [
+      setActivityEvents((currentEvents) => [
         {
-          id: `timeline-${dealId}-${Date.now()}`,
+          id: `activity-drawing-${dealId}-${Date.now()}`,
           dealId,
-          title: 'Создан чертеж',
-          createdAt: new Date().toISOString(),
-          description: `Добавлен чертеж «${drawing.name}» с ${drawing.elements.length} объектами.`,
+          timestamp: new Date().toISOString(),
+          type: 'drawingCreated',
+          message: `Создан чертёж «${drawing.name}» с ${drawing.elements.length} объектами.`,
         },
         ...currentEvents,
       ]);
@@ -465,6 +496,7 @@ export default function HomePage() {
         });
       }
 
+      const movedDeal = currentColumns[sourceStatus][source.index];
       const moved = moveDealBetweenColumns(
         currentColumns[sourceStatus],
         currentColumns[destinationStatus],
@@ -472,6 +504,19 @@ export default function HomePage() {
         destination.index,
         destinationStatus,
       );
+
+      if (movedDeal) {
+        setActivityEvents((currentEvents) => [
+          {
+            id: `activity-status-${movedDeal.id}-${Date.now()}`,
+            dealId: movedDeal.id,
+            timestamp: new Date().toISOString(),
+            type: 'statusChanged',
+            message: `Статус изменён: «${STATUS_TITLES[sourceStatus]}» → «${STATUS_TITLES[destinationStatus]}».`,
+          },
+          ...currentEvents,
+        ]);
+      }
 
       return flattenColumns({
         ...currentColumns,
@@ -784,37 +829,7 @@ export default function HomePage() {
                                     <FileList files={dealFiles.filter((file) => file.dealId === deal.id)} />
                                   </section>
 
-                                  <section className="mt-4 rounded-2xl bg-slate-50 p-3">
-                                    <div className="mb-3 flex items-center justify-between gap-2">
-                                      <div>
-                                        <h4 className="text-sm font-bold text-slate-950">Таймлайн сделки</h4>
-                                        <p className="text-xs text-slate-500">
-                                          {dealTimelineEvents.filter((event) => event.dealId === deal.id).length} событий
-                                        </p>
-                                      </div>
-                                      <MessageSquareText className="h-5 w-5 text-slate-400" />
-                                    </div>
-                                    <ol className="space-y-2">
-                                      {dealTimelineEvents.filter((event) => event.dealId === deal.id).length === 0 ? (
-                                        <li className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-500">
-                                          Событий по сделке пока нет.
-                                        </li>
-                                      ) : null}
-                                      {dealTimelineEvents
-                                        .filter((event) => event.dealId === deal.id)
-                                        .map((event) => (
-                                          <li key={event.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
-                                            <div className="flex items-center justify-between gap-3">
-                                              <p className="font-bold text-slate-950">{event.title}</p>
-                                              <time className="shrink-0 text-xs text-slate-500">
-                                                {new Date(event.createdAt).toLocaleString('ru-RU')}
-                                              </time>
-                                            </div>
-                                            <p className="mt-1 leading-5 text-slate-600">{event.description}</p>
-                                          </li>
-                                        ))}
-                                    </ol>
-                                  </section>
+                                  <ActivityTimeline events={activityEvents.filter((event) => event.dealId === deal.id)} />
                                 </article>
                               )}
                             </Draggable>

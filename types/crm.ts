@@ -33,12 +33,14 @@ export type DrawingAttachment = {
   svg: string;
 };
 
-export type DealTimelineEvent = {
+export type ActivityEventType = 'dealCreated' | 'statusChanged' | 'fileUploaded' | 'drawingCreated';
+
+export type ActivityEvent = {
   id: string;
   dealId: string;
-  title: string;
-  createdAt: string;
-  description: string;
+  timestamp: string;
+  type: ActivityEventType;
+  message: string;
 };
 
 export type Deal = {
