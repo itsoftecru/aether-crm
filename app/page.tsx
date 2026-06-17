@@ -78,7 +78,7 @@ type ClientFormValues = Pick<Client, 'name' | 'company' | 'phone' | 'email' | 'm
 
 type ClientFormMode = 'create' | 'edit' | null;
 type DealFormMode = 'create' | 'edit' | null;
-type DealFormValues = Pick<Deal, 'title' | 'clientId' | 'status' | 'owner' | 'dueDate' | 'price' | 'revenue' | 'currency' | 'financials' | 'notes'>;
+type DealFormValues = Pick<Deal, 'title' | 'clientId' | 'status' | 'owner' | 'dueDate' | 'revenueAmount' | 'currency' | 'financials' | 'notes'>;
 
 const EMPTY_CLIENT_FORM: ClientFormValues = {
   name: '',
@@ -155,8 +155,7 @@ const EMPTY_DEAL_FORM: DealFormValues = {
   status: 'lead',
   owner: '',
   dueDate: '',
-  price: '',
-  revenue: 0,
+  revenueAmount: 0,
   currency: 'RUB',
   financials: createEmptyDealFinancials(),
   notes: '',
@@ -173,8 +172,7 @@ function createDealFormValues(deal?: Deal | null, fallbackClientId = ''): DealFo
     status: deal.status,
     owner: deal.owner,
     dueDate: deal.dueDate,
-    price: deal.price,
-    revenue: deal.revenue,
+    revenueAmount: deal.revenueAmount,
     currency: deal.currency,
     financials: normalizeDealFinancials(deal.financials),
     notes: deal.notes,
@@ -188,8 +186,7 @@ function normalizeDealFormValues(values: DealFormValues): DealFormValues {
     status: values.status,
     owner: values.owner.trim(),
     dueDate: values.dueDate.trim(),
-    price: values.price.trim(),
-    revenue: Number(values.revenue) || 0,
+    revenueAmount: Number(values.revenueAmount) || 0,
     currency: 'RUB',
     financials: normalizeDealFinancials(values.financials),
     notes: values.notes.trim(),
@@ -204,7 +201,7 @@ function validateDealForm(values: DealFormValues, clients: Client[]): string | n
   if (!DEAL_STATUSES.includes(normalizedValues.status)) return 'Выберите корректный статус сделки.';
   if (!normalizedValues.owner) return 'Укажите ответственного менеджера.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValues.dueDate)) return 'Укажите плановый срок в формате даты.';
-  if (normalizedValues.revenue <= 0) return 'Укажите положительную выручку сделки.';
+  if (normalizedValues.revenueAmount <= 0) return 'Укажите положительную выручку сделки.';
 
   return null;
 }
@@ -271,8 +268,8 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(value);
+function formatMoney(amount: number): string {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(amount);
 }
 
 function formatPercent(value: number): string {
@@ -336,7 +333,7 @@ function generateDocumentText(deal: Deal, client: Client, kind: DocumentKind): s
     `Ответственный: ${deal.owner}`,
     `Дата создания: ${deal.createdAt}`,
     `Плановый срок: ${deal.dueDate}`,
-    `Выручка: ${formatCurrency(deal.revenue)}`,
+    `Выручка: ${formatMoney(deal.revenueAmount)}`,
     '',
     'Описание и примечания',
     deal.notes,
@@ -564,9 +561,7 @@ export default function HomePage() {
   }, [allDeals, selectedClient]);
 
   const totalValue = useMemo(() => {
-    return allDeals
-      .reduce((sum, deal) => sum + deal.revenue, 0)
-      .toLocaleString('ru-RU');
+    return allDeals.reduce((sum, deal) => sum + deal.revenueAmount, 0);
   }, [allDeals]);
 
   const totalDeals = useMemo(() => allDeals.length, [allDeals]);
@@ -901,8 +896,7 @@ export default function HomePage() {
   const updateDealFormField = useCallback((field: keyof DealFormValues, value: string) => {
     setDealFormValues((currentValues) => ({
       ...currentValues,
-      [field]: field === 'status' ? value as DealStatus : field === 'revenue' ? Number(value) || 0 : value,
-      price: field === 'revenue' ? `${(Number(value) || 0).toLocaleString('ru-RU')} ₽` : currentValues.price,
+      [field]: field === 'status' ? value as DealStatus : field === 'revenueAmount' ? Number(value) || 0 : value,
     }));
     setDealFormError(null);
   }, []);
@@ -967,7 +961,6 @@ export default function HomePage() {
       const createdDeal = await crmRepository.addDeal({
         id: `deal-${timestamp}`,
         ...normalizedValues,
-        price: formatCurrency(normalizedValues.revenue),
         client: client.name,
         createdAt,
       });
@@ -989,7 +982,6 @@ export default function HomePage() {
     if (dealFormMode === 'edit' && editingDealId) {
       const updatedDeal = await crmRepository.updateDeal(editingDealId, {
         ...normalizedValues,
-        price: formatCurrency(normalizedValues.revenue),
         client: client.name,
       });
 
@@ -1125,7 +1117,7 @@ export default function HomePage() {
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase text-slate-500">Портфель</p>
-                  <p className="text-2xl font-bold text-slate-950">{totalValue} ₽</p>
+                  <p className="text-2xl font-bold text-slate-950">{formatMoney(totalValue)}</p>
                 </div>
                 <section className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:col-span-2 xl:col-span-1" aria-label="Уведомления">
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -1224,7 +1216,7 @@ export default function HomePage() {
               <Card>
                 <CardHeader>
                   <CardDescription className="font-semibold uppercase tracking-[0.18em]">Портфель</CardDescription>
-                  <CardTitle className="text-4xl">{totalValue} ₽</CardTitle>
+                  <CardTitle className="text-4xl">{formatMoney(totalValue)}</CardTitle>
                 </CardHeader>
                 <CardContent><p className="text-sm text-slate-500">Суммарная стоимость сделок.</p></CardContent>
               </Card>
@@ -1382,7 +1374,7 @@ export default function HomePage() {
                               {STATUS_TITLES[deal.status]}
                             </Badge>
                           </div>
-                          <p className="mt-2 font-bold text-slate-950">{formatCurrency(deal.revenue)}</p>
+                          <p className="mt-2 font-bold text-slate-950">{formatMoney(deal.revenueAmount)}</p>
                         </div>
                       ))}
                     </div>
@@ -1469,7 +1461,7 @@ export default function HomePage() {
                     </select>
                     <Input value={dealFormValues.owner} onChange={(event) => updateDealFormField('owner', event.target.value)} placeholder="Ответственный *" />
                     <Input type="date" value={dealFormValues.dueDate} onChange={(event) => updateDealFormField('dueDate', event.target.value)} />
-                    <Input type="number" min="0" step="100" value={dealFormValues.revenue || ''} onChange={(event) => updateDealFormField('revenue', event.target.value)} placeholder="Выручка, ₽ *" />
+                    <Input type="number" min="0" step="100" value={dealFormValues.revenueAmount || ''} onChange={(event) => updateDealFormField('revenueAmount', event.target.value)} placeholder="Выручка, ₽ *" />
                     <textarea value={dealFormValues.notes} onChange={(event) => updateDealFormField('notes', event.target.value)} placeholder="Заметки" className="min-h-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 md:col-span-2" />
                   </div>
 
@@ -1480,7 +1472,7 @@ export default function HomePage() {
                         <p className="text-sm text-slate-600">Добавляйте несколько строк внутри каждой категории сметы.</p>
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-950">
-                        Итого расходов: {formatCurrency(calculateDealExpenses(dealFormValues.financials))}
+                        Итого расходов: {formatMoney(calculateDealExpenses(dealFormValues.financials))}
                       </div>
                     </div>
                     <div className="space-y-4">
@@ -1504,7 +1496,7 @@ export default function HomePage() {
                                   <>
                                     <Input type="number" min="0" step="0.5" value={item.hours ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hours: Number(event.target.value) || 0 })} placeholder="Часы" className="md:col-span-2" />
                                     <Input type="number" min="0" step="100" value={item.hourlyRate ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hourlyRate: Number(event.target.value) || 0 })} placeholder="Ставка, ₽/ч" className="md:col-span-2" />
-                                    <Input value={formatCurrency(calculateDealCostItemTotal(item))} readOnly className="md:col-span-2" />
+                                    <Input value={formatMoney(calculateDealCostItemTotal(item))} readOnly className="md:col-span-2" />
                                   </>
                                 ) : (
                                   <Input type="number" min="0" step="100" value={item.amount || ''} onChange={(event) => updateDealCostItem(category, item.id, { amount: Number(event.target.value) || 0 })} placeholder="Сумма, ₽" className="md:col-span-3" />
@@ -1623,19 +1615,19 @@ export default function HomePage() {
                                         <CircleDollarSign className="h-4 w-4" />
                                         Выручка
                                       </dt>
-                                      <dd className="font-bold text-slate-950">{formatCurrency(deal.revenue)}</dd>
+                                      <dd className="font-bold text-slate-950">{formatMoney(deal.revenueAmount)}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt>Расходы</dt>
-                                      <dd className="font-medium text-slate-900">{formatCurrency(calculateDealExpenses(deal.financials))}</dd>
+                                      <dd className="font-medium text-slate-900">{formatMoney(calculateDealExpenses(deal.financials))}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt>Чистая прибыль</dt>
-                                      <dd className="font-medium text-emerald-700">{formatCurrency(calculateDealNetProfit(deal.revenue, deal.financials))}</dd>
+                                      <dd className="font-medium text-emerald-700">{formatMoney(calculateDealNetProfit(deal.revenueAmount, deal.financials))}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt>Маржинальность</dt>
-                                      <dd className="font-medium text-slate-900">{formatPercent(calculateDealMarginPercent(deal.revenue, calculateDealNetProfit(deal.revenue, deal.financials)))}</dd>
+                                      <dd className="font-medium text-slate-900">{formatPercent(calculateDealMarginPercent(deal.revenueAmount, calculateDealNetProfit(deal.revenueAmount, deal.financials)))}</dd>
                                     </div>
                                   </dl>
 

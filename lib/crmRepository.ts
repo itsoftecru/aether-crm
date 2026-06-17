@@ -144,8 +144,7 @@ export const INITIAL_DEALS: Deal[] = [
     status: 'lead',
     owner: 'Мария Орлова',
     dueDate: '2026-07-12',
-    price: '420 000 ₽',
-    revenue: 420000,
+    revenueAmount: 420000,
     currency: 'RUB',
     financials: createEmptyDealFinancials(),
     notes: 'Клиент просит предусмотреть встроенную подсветку и скрытые ручки.',
@@ -159,8 +158,7 @@ export const INITIAL_DEALS: Deal[] = [
     status: 'specApproval',
     owner: 'Олег Романов',
     dueDate: '2026-06-15',
-    price: '185 000 ₽',
-    revenue: 185000,
+    revenueAmount: 185000,
     currency: 'RUB',
     financials: createEmptyDealFinancials(),
     notes: 'Нужно уточнить глубину секций после повторного замера помещения.',
@@ -174,8 +172,7 @@ export const INITIAL_DEALS: Deal[] = [
     status: 'inProgress',
     owner: 'Екатерина Волкова',
     dueDate: '2026-07-05',
-    price: '760 000 ₽',
-    revenue: 760000,
+    revenueAmount: 760000,
     currency: 'RUB',
     financials: createEmptyDealFinancials(),
     notes: 'Чертежи утверждены, материалы зарезервированы на складе.',
@@ -189,8 +186,7 @@ export const INITIAL_DEALS: Deal[] = [
     status: 'inProgress',
     owner: 'Мария Орлова',
     dueDate: '2026-06-30',
-    price: '315 000 ₽',
-    revenue: 315000,
+    revenueAmount: 315000,
     currency: 'RUB',
     financials: createEmptyDealFinancials(),
     notes: 'Проверить безопасность фурнитуры и согласовать палитру фасадов.',
@@ -204,8 +200,7 @@ export const INITIAL_DEALS: Deal[] = [
     status: 'done',
     owner: 'Олег Романов',
     dueDate: '2026-06-14',
-    price: '540 000 ₽',
-    revenue: 540000,
+    revenueAmount: 540000,
     currency: 'RUB',
     financials: createEmptyDealFinancials(),
     notes: 'Заказ смонтирован, акты подписаны, ожидается финальная оплата.',
@@ -336,8 +331,16 @@ function isBrowserStorageAvailable(): boolean {
 }
 
 
-function parseDealRevenue(price: string): number {
-  return Number(price.replace(/[^\d.-]/g, '')) || 0;
+function parseMoneyAmount(value: unknown): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value !== 'string') {
+    return 0;
+  }
+
+  return Number(value.replace(/[^\d.-]/g, '')) || 0;
 }
 
 function normalizeDealFinancials(deal: Partial<Deal>): Deal['financials'] {
@@ -347,13 +350,12 @@ function normalizeDealFinancials(deal: Partial<Deal>): Deal['financials'] {
   };
 }
 
-function normalizeDealFinancialFields(deal: Deal): Deal {
-  const revenue = Number(deal.revenue) || parseDealRevenue(deal.price ?? '');
+function normalizeDealFinancialFields(deal: Partial<Deal> & { price?: unknown; revenue?: unknown }): Deal {
+  const revenueAmount = Number(deal.revenueAmount) || parseMoneyAmount(deal.revenue) || parseMoneyAmount(deal.price);
 
   return {
-    ...deal,
-    price: deal.price || `${revenue.toLocaleString('ru-RU')} ₽`,
-    revenue,
+    ...(deal as Deal),
+    revenueAmount,
     currency: deal.currency ?? 'RUB',
     financials: normalizeDealFinancials(deal),
   };
@@ -377,7 +379,7 @@ function safeParseState(value: string | null): CrmState | null {
     }
     return {
       clients: parsed.clients,
-      deals: parsed.deals.map((deal) => normalizeDealFinancialFields(deal as Deal)),
+      deals: parsed.deals.map((deal) => normalizeDealFinancialFields(deal as Partial<Deal> & { price?: unknown; revenue?: unknown })),
       dealFiles: parsed.dealFiles,
       activityEvents: parsed.activityEvents,
     };
@@ -454,8 +456,7 @@ export class LocalStorageCrmRepository implements CrmRepository {
       clientId: deal.clientId,
       client: client?.name ?? deal.client.trim(),
       owner: deal.owner.trim(),
-      price: deal.price.trim(),
-      revenue: Number(deal.revenue) || parseDealRevenue(deal.price),
+      revenueAmount: Number(deal.revenueAmount) || 0,
       currency: deal.currency ?? 'RUB',
       financials: normalizeDealFinancials(deal),
       notes: deal.notes.trim(),

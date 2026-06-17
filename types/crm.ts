@@ -75,8 +75,7 @@ export type Deal = {
   status: DealStatus;
   owner: string;
   dueDate: string;
-  price: string;
-  revenue: number;
+  revenueAmount: number;
   currency: 'RUB';
   financials: DealFinancials;
   notes: string;
