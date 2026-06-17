@@ -34,7 +34,8 @@ import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DocumentKind, DrawingElement, Reminder } from '@/types/crm';
+import { crmRepository, INITIAL_CLIENTS, INITIAL_DEALS, INITIAL_DEAL_FILES, INITIAL_ACTIVITY_EVENTS, INITIAL_REMINDERS } from '@/lib/crmRepository';
+import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DocumentKind, DrawingElement } from '@/types/crm';
 
 type ActiveSection = 'home' | 'clients' | 'deals' | 'drawings' | 'files' | 'settings';
 
@@ -77,280 +78,6 @@ const DOCUMENT_TITLES: Record<DocumentKind, string> = DOCUMENT_BUTTONS.reduce(
   }),
   {} as Record<DocumentKind, string>,
 );
-
-const INITIAL_CLIENTS: Client[] = [
-  {
-    id: 'client-001',
-    name: 'Анна Смирнова',
-    company: 'Частный заказчик',
-    phone: '+7 (921) 447-18-02',
-    email: 'anna.smirnova@example.com',
-    messengers: ['Telegram @asmirnova', 'WhatsApp'],
-    address: 'Санкт-Петербург, ул. Парадная, 8',
-    comments: 'Предпочитает вечерние звонки после 18:00, просит отправлять визуализации в Telegram.',
-    communications: [
-      {
-        id: 'comm-001',
-        date: '2026-06-02 11:20',
-        channel: 'Телефон',
-        summary: 'Первичный запрос на кухню из массива, зафиксированы размеры помещения.',
-        manager: 'Мария Орлова',
-      },
-      {
-        id: 'comm-002',
-        date: '2026-06-06 19:05',
-        channel: 'Telegram',
-        summary: 'Клиент прислал референсы скрытых ручек и теплой подсветки рабочей зоны.',
-        manager: 'Мария Орлова',
-      },
-    ],
-  },
-  {
-    id: 'client-002',
-    name: 'Илья Кузнецов',
-    company: 'Частный заказчик',
-    phone: '+7 (916) 302-44-81',
-    email: 'ilya.kuznetsov@example.com',
-    messengers: ['WhatsApp', 'Viber'],
-    address: 'Москва, Ленинградский пр-т, 54',
-    comments: 'Нужна детализация стоимости по материалам и отдельная смета на монтаж.',
-    communications: [
-      {
-        id: 'comm-003',
-        date: '2026-06-04 14:10',
-        channel: 'Email',
-        summary: 'Получены планы прихожей и пожелания по зеркальным дверям шкафа.',
-        manager: 'Олег Романов',
-      },
-      {
-        id: 'comm-004',
-        date: '2026-06-11 10:35',
-        channel: 'Телефон',
-        summary: 'Согласован повторный замер для уточнения глубины секций.',
-        manager: 'Олег Романов',
-      },
-    ],
-  },
-  {
-    id: 'client-003',
-    name: 'ООО «Северный Вектор»',
-    company: 'ООО «Северный Вектор»',
-    phone: '+7 (812) 555-20-41',
-    email: 'office@north-vector.example',
-    messengers: ['Telegram @north_vector_office'],
-    address: 'Санкт-Петербург, БЦ «Атлас», наб. Обводного канала, 118',
-    comments: 'Корпоративный клиент, требуется закрывающая документация и согласование через отдел закупок.',
-    communications: [
-      {
-        id: 'comm-005',
-        date: '2026-05-25 09:40',
-        channel: 'Email',
-        summary: 'Передано ТЗ на переговорную и брендбук для подбора отделки.',
-        manager: 'Екатерина Волкова',
-      },
-      {
-        id: 'comm-006',
-        date: '2026-06-09 16:00',
-        channel: 'Встреча',
-        summary: 'Подписан протокол согласования чертежей и спецификации материалов.',
-        manager: 'Екатерина Волкова',
-      },
-    ],
-  },
-  {
-    id: 'client-004',
-    name: 'Павел Морозов',
-    company: 'Частный заказчик',
-    phone: '+7 (925) 603-77-16',
-    email: 'pavel.morozov@example.com',
-    messengers: ['Telegram @pmorozov'],
-    address: 'Москва, ул. Мосфильмовская, 33',
-    comments: 'Особое внимание безопасности детской фурнитуры, все острые углы должны быть скруглены.',
-    communications: [
-      {
-        id: 'comm-007',
-        date: '2026-05-18 12:30',
-        channel: 'Телефон',
-        summary: 'Обсуждена концепция детской комнаты под ключ и сроки монтажа.',
-        manager: 'Мария Орлова',
-      },
-      {
-        id: 'comm-008',
-        date: '2026-06-13 18:15',
-        channel: 'Telegram',
-        summary: 'Отправлены варианты палитры фасадов для финального выбора.',
-        manager: 'Мария Орлова',
-      },
-    ],
-  },
-  {
-    id: 'client-005',
-    name: 'Медцентр «Альта»',
-    company: 'ООО «Альта Мед»',
-    phone: '+7 (495) 120-48-90',
-    email: 'admin@alta-med.example',
-    messengers: ['WhatsApp Business'],
-    address: 'Москва, ул. Большая Полянка, 21',
-    comments: 'После монтажа ресепшена планируется заявка на мебель для кабинетов врачей.',
-    communications: [
-      {
-        id: 'comm-009',
-        date: '2026-05-10 15:00',
-        channel: 'Встреча',
-        summary: 'Зафиксированы требования к износостойкому покрытию и санитарной обработке.',
-        manager: 'Олег Романов',
-      },
-      {
-        id: 'comm-010',
-        date: '2026-06-14 13:45',
-        channel: 'Email',
-        summary: 'Переданы подписанные акты, ожидается финальная оплата по счету.',
-        manager: 'Олег Романов',
-      },
-    ],
-  },
-];
-
-const INITIAL_DEALS: Deal[] = [
-  {
-    id: 'deal-001',
-    clientId: 'client-001',
-    title: 'Кухонный гарнитур из массива',
-    client: 'Анна Смирнова',
-    createdAt: '2026-06-02',
-    status: 'lead',
-    owner: 'Мария Орлова',
-    dueDate: '2026-07-12',
-    price: '420 000 ₽',
-    notes: 'Клиент просит предусмотреть встроенную подсветку и скрытые ручки.',
-  },
-  {
-    id: 'deal-002',
-    clientId: 'client-002',
-    title: 'Шкаф-купе в прихожую',
-    client: 'Илья Кузнецов',
-    createdAt: '2026-06-04',
-    status: 'specApproval',
-    owner: 'Олег Романов',
-    dueDate: '2026-06-15',
-    price: '185 000 ₽',
-    notes: 'Нужно уточнить глубину секций после повторного замера помещения.',
-  },
-  {
-    id: 'deal-003',
-    clientId: 'client-003',
-    title: 'Комплект мебели для переговорной',
-    client: 'ООО «Северный Вектор»',
-    createdAt: '2026-05-25',
-    status: 'inProgress',
-    owner: 'Екатерина Волкова',
-    dueDate: '2026-07-05',
-    price: '760 000 ₽',
-    notes: 'Чертежи утверждены, материалы зарезервированы на складе.',
-  },
-  {
-    id: 'deal-004',
-    clientId: 'client-004',
-    title: 'Детская комната под ключ',
-    client: 'Павел Морозов',
-    createdAt: '2026-05-18',
-    status: 'inProgress',
-    owner: 'Мария Орлова',
-    dueDate: '2026-06-30',
-    price: '315 000 ₽',
-    notes: 'Проверить безопасность фурнитуры и согласовать палитру фасадов.',
-  },
-  {
-    id: 'deal-005',
-    clientId: 'client-005',
-    title: 'Ресепшен для клиники',
-    client: 'Медцентр «Альта»',
-    createdAt: '2026-05-10',
-    status: 'done',
-    owner: 'Олег Романов',
-    dueDate: '2026-06-14',
-    price: '540 000 ₽',
-    notes: 'Заказ смонтирован, акты подписаны, ожидается финальная оплата.',
-  },
-];
-
-
-const INITIAL_REMINDERS: Reminder[] = [
-  {
-    id: 'reminder-001',
-    dealId: 'deal-001',
-    clientId: 'client-001',
-    title: 'Позвонить Анне и подтвердить материалы',
-    dueAt: '2026-06-17T15:00:00.000Z',
-    isDone: false,
-    type: 'call',
-  },
-  {
-    id: 'reminder-002',
-    dealId: 'deal-003',
-    clientId: 'client-003',
-    title: 'Отправить спецификацию по переговорной',
-    dueAt: '2026-06-18T10:30:00.000Z',
-    isDone: false,
-    type: 'task',
-  },
-  {
-    id: 'reminder-003',
-    dealId: 'deal-005',
-    clientId: 'client-005',
-    title: 'Проверить финальную оплату',
-    dueAt: '2026-06-16T12:00:00.000Z',
-    isDone: true,
-    type: 'payment',
-  },
-];
-
-const INITIAL_DEAL_FILES: DealFile[] = [
-  {
-    id: 'file-001',
-    dealId: 'deal-001',
-    name: 'Техническое-задание.pdf',
-    type: 'application/pdf',
-    size: 248000,
-    version: 1,
-    uploadedAt: '2026-06-06T10:20:00.000Z',
-    previewUrl: '/file.svg',
-  },
-  {
-    id: 'file-002',
-    dealId: 'deal-003',
-    name: 'План-переговорной.dwg',
-    type: 'application/acad',
-    size: 1824000,
-    version: 1,
-    uploadedAt: '2026-06-10T13:45:00.000Z',
-    previewUrl: '/file.svg',
-  },
-];
-
-const INITIAL_ACTIVITY_EVENTS: ActivityEvent[] = [
-  ...INITIAL_DEALS.map((deal) => ({
-    id: `activity-${deal.id}-created`,
-    dealId: deal.id,
-    timestamp: `${deal.createdAt}T09:00:00.000Z`,
-    type: 'dealCreated' as const,
-    message: `Создана сделка «${deal.title}» для клиента ${deal.client}.`,
-  })),
-  ...INITIAL_DEAL_FILES.map((file) => ({
-    id: `activity-${file.id}-uploaded`,
-    dealId: file.dealId,
-    timestamp: file.uploadedAt,
-    type: 'fileUploaded' as const,
-    message: `Загружен файл «${file.name}» версии ${file.version}.`,
-  })),
-  {
-    id: 'activity-deal-003-drawing-approved',
-    dealId: 'deal-003',
-    timestamp: '2026-06-10T13:45:00.000Z',
-    type: 'drawingCreated',
-    message: 'Создан и приложен чертёж переговорной, согласование с клиентом зафиксировано.',
-  },
-];
 
 const statusStyles: Record<DealStatus, string> = {
   lead: 'border-slate-200 bg-slate-100 text-slate-700',
@@ -473,6 +200,7 @@ function moveDealBetweenColumns(
 export default function HomePage() {
   const [activeSection, setActiveSection] = useState<ActiveSection>('home');
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
+  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_EVENTS);
@@ -482,17 +210,47 @@ export default function HomePage() {
 
   const normalizedSearchQuery = searchQuery.toLowerCase().trim();
 
-  const filteredClients = useMemo(() => {
-    if (!normalizedSearchQuery) {
-      return INITIAL_CLIENTS;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCrmData() {
+      const [loadedClients, loadedDeals, loadedFiles, loadedEvents] = await Promise.all([
+        crmRepository.getClients(),
+        crmRepository.getDeals(),
+        crmRepository.getDealFiles(),
+        crmRepository.getActivityEvents(),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      setClients(loadedClients);
+      setDeals(loadedDeals);
+      setDealFiles(loadedFiles);
+      setActivityEvents(loadedEvents);
+      setSelectedClientId((currentClientId) => loadedClients.some((client) => client.id === currentClientId) ? currentClientId : loadedClients[0]?.id ?? currentClientId);
     }
 
-    return INITIAL_CLIENTS.filter((client) =>
+    void loadCrmData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const filteredClients = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return clients;
+    }
+
+    return clients.filter((client) =>
       [client.name, client.company, client.phone, client.email].some((value) =>
         value.toLowerCase().trim().includes(normalizedSearchQuery),
       ),
     );
-  }, [normalizedSearchQuery]);
+  }, [clients, normalizedSearchQuery]);
 
   const filteredDeals = useMemo(() => {
     if (!normalizedSearchQuery) {
@@ -549,48 +307,43 @@ export default function HomePage() {
 
   const drawingFiles = useMemo(() => dealFiles.filter((file) => file.drawingData), [dealFiles]);
 
-  const handleDealFilesSelected = useCallback((dealId: string, files: File[]) => {
-    setDealFiles((currentFiles) => {
-      const stagedFiles: DealFile[] = [];
-      const stagedEvents: ActivityEvent[] = [];
-      const batchTimestamp = Date.now();
+  const handleDealFilesSelected = useCallback(async (dealId: string, files: File[]) => {
+    const stagedFiles: DealFile[] = [];
+    const stagedEvents: ActivityEvent[] = [];
+    const batchTimestamp = Date.now();
 
-      files.forEach((file, index) => {
-        const previewUrl = URL.createObjectURL(file);
-        const uploadedAt = new Date(batchTimestamp + index).toISOString();
-        const version = getNextFileVersion([...currentFiles, ...stagedFiles], dealId, file.name);
-
-        objectUrlsRef.current.push(previewUrl);
-        stagedFiles.push({
-          id: `file-${dealId}-${batchTimestamp}-${index}`,
-          dealId,
-          name: file.name,
-          type: file.type || 'application/octet-stream',
-          size: file.size,
-          version,
-          uploadedAt,
-          previewUrl,
-        });
-        stagedEvents.push({
-          id: `activity-file-${dealId}-${batchTimestamp}-${index}`,
-          dealId,
-          timestamp: uploadedAt,
-          type: 'fileUploaded',
-          message: `Загружен файл «${file.name}» версии ${version}.`,
-        });
+    for (const [index, file] of files.entries()) {
+      const uploadedAt = new Date(batchTimestamp + index).toISOString();
+      const version = getNextFileVersion([...dealFiles, ...stagedFiles], dealId, file.name);
+      const savedFile = await crmRepository.addFile({
+        id: `file-${dealId}-${batchTimestamp}-${index}`,
+        dealId,
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        version,
+        uploadedAt,
+        content: file,
       });
 
-      if (stagedEvents.length > 0) {
-        setActivityEvents((currentEvents) => [...stagedEvents, ...currentEvents]);
-      }
+      stagedFiles.push(savedFile);
+      stagedEvents.push({
+        id: `activity-file-${dealId}-${batchTimestamp}-${index}`,
+        dealId,
+        timestamp: uploadedAt,
+        type: 'fileUploaded',
+        message: `Загружен файл «${file.name}» версии ${version}.`,
+      });
+    }
 
-      return [...stagedFiles, ...currentFiles];
-    });
-  }, []);
+    await Promise.all(stagedEvents.map((event) => crmRepository.addActivityEvent(event)));
+    setDealFiles((currentFiles) => [...stagedFiles, ...currentFiles]);
+    setActivityEvents((currentEvents) => [...stagedEvents, ...currentEvents]);
+  }, [dealFiles]);
 
 
-  const handleGenerateDocument = useCallback((deal: Deal, kind: DocumentKind) => {
-    const client = INITIAL_CLIENTS.find((currentClient) => currentClient.id === deal.clientId);
+  const handleGenerateDocument = useCallback(async (deal: Deal, kind: DocumentKind) => {
+    const client = clients.find((currentClient) => currentClient.id === deal.clientId);
 
     if (!client) {
       return;
@@ -601,76 +354,65 @@ export default function HomePage() {
     const fileName = `${documentConfig?.filePrefix ?? documentTitle}_${deal.id}.txt`;
     const text = generateDocumentText(deal, client, kind);
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const previewUrl = URL.createObjectURL(blob);
     const generatedAt = new Date().toISOString();
     const timestamp = Date.now();
+    const savedFile = await crmRepository.addFile({
+      id: `document-file-${deal.id}-${kind}-${timestamp}`,
+      dealId: deal.id,
+      name: fileName,
+      type: 'text/plain',
+      size: blob.size,
+      version: getNextFileVersion(dealFiles, deal.id, fileName),
+      uploadedAt: generatedAt,
+      content: blob,
+    });
+    const event: ActivityEvent = {
+      id: `activity-document-${deal.id}-${kind}-${timestamp}`,
+      dealId: deal.id,
+      timestamp: generatedAt,
+      type: 'documentGenerated',
+      message: `Сформирован документ «${documentTitle}» и добавлен файл «${fileName}».`,
+    };
 
-    objectUrlsRef.current.push(previewUrl);
-
-    setDealFiles((currentFiles) => [
-      {
-        id: `document-file-${deal.id}-${kind}-${timestamp}`,
-        dealId: deal.id,
-        name: fileName,
-        type: 'text/plain',
-        size: blob.size,
-        version: getNextFileVersion(currentFiles, deal.id, fileName),
-        uploadedAt: generatedAt,
-        previewUrl,
-      },
-      ...currentFiles,
-    ]);
-
-    setActivityEvents((currentEvents) => [
-      {
-        id: `activity-document-${deal.id}-${kind}-${timestamp}`,
-        dealId: deal.id,
-        timestamp: generatedAt,
-        type: 'documentGenerated',
-        message: `Сформирован документ «${documentTitle}» и добавлен файл «${fileName}».`,
-      },
-      ...currentEvents,
-    ]);
-  }, []);
+    await crmRepository.addActivityEvent(event);
+    setDealFiles((currentFiles) => [savedFile, ...currentFiles]);
+    setActivityEvents((currentEvents) => [event, ...currentEvents]);
+  }, [clients, dealFiles]);
 
   const handleDrawingSave = useCallback(
-    (dealId: string, drawing: { name: string; elements: DrawingElement[]; svg: string }) => {
+    async (dealId: string, drawing: { name: string; elements: DrawingElement[]; svg: string }) => {
       const blob = new Blob([drawing.svg], { type: 'image/svg+xml;charset=utf-8' });
-      const previewUrl = URL.createObjectURL(blob);
-      objectUrlsRef.current.push(previewUrl);
-
-      setDealFiles((currentFiles) => [
-        {
-          id: `drawing-file-${dealId}-${Date.now()}`,
-          dealId,
-          name: drawing.name,
-          type: 'image/svg+xml',
-          size: blob.size,
-          version: getNextFileVersion(currentFiles, dealId, drawing.name),
-          uploadedAt: new Date().toISOString(),
-          previewUrl,
-          drawingData: {
-            format: 'svg',
-            elements: drawing.elements,
-            svg: drawing.svg,
-          },
+      const timestamp = Date.now();
+      const uploadedAt = new Date().toISOString();
+      const savedFile = await crmRepository.addFile({
+        id: `drawing-file-${dealId}-${timestamp}`,
+        dealId,
+        name: drawing.name,
+        type: 'image/svg+xml',
+        size: blob.size,
+        version: getNextFileVersion(dealFiles, dealId, drawing.name),
+        uploadedAt,
+        content: blob,
+        drawingData: {
+          format: 'svg',
+          elements: drawing.elements,
+          svg: drawing.svg,
         },
-        ...currentFiles,
-      ]);
+      });
+      const event: ActivityEvent = {
+        id: `activity-drawing-${dealId}-${timestamp}`,
+        dealId,
+        timestamp: uploadedAt,
+        type: 'drawingCreated',
+        message: `Создан чертёж «${drawing.name}» с ${drawing.elements.length} объектами.`,
+      };
 
-      setActivityEvents((currentEvents) => [
-        {
-          id: `activity-drawing-${dealId}-${Date.now()}`,
-          dealId,
-          timestamp: new Date().toISOString(),
-          type: 'drawingCreated',
-          message: `Создан чертёж «${drawing.name}» с ${drawing.elements.length} объектами.`,
-        },
-        ...currentEvents,
-      ]);
+      await crmRepository.addActivityEvent(event);
+      setDealFiles((currentFiles) => [savedFile, ...currentFiles]);
+      setActivityEvents((currentEvents) => [event, ...currentEvents]);
       setDrawingDealId(null);
     },
-    [],
+    [dealFiles],
   );
 
   useEffect(() => {
@@ -705,10 +447,12 @@ export default function HomePage() {
       const currentColumns = groupDealsByStatus(currentDeals);
 
       if (sourceStatus === destinationStatus) {
-        return flattenColumns({
+        const reorderedDeals = flattenColumns({
           ...currentColumns,
           [sourceStatus]: reorderColumn(currentColumns[sourceStatus], source.index, destination.index),
         });
+        void crmRepository.replaceDeals(reorderedDeals);
+        return reorderedDeals;
       }
 
       const movedDeal = currentColumns[sourceStatus][source.index];
@@ -721,23 +465,25 @@ export default function HomePage() {
       );
 
       if (movedDeal) {
-        setActivityEvents((currentEvents) => [
-          {
-            id: `activity-status-${movedDeal.id}-${Date.now()}`,
-            dealId: movedDeal.id,
-            timestamp: new Date().toISOString(),
-            type: 'statusChanged',
-            message: `Статус изменён: «${STATUS_TITLES[sourceStatus]}» → «${STATUS_TITLES[destinationStatus]}».`,
-          },
-          ...currentEvents,
-        ]);
+        const event: ActivityEvent = {
+          id: `activity-status-${movedDeal.id}-${Date.now()}`,
+          dealId: movedDeal.id,
+          timestamp: new Date().toISOString(),
+          type: 'statusChanged',
+          message: `Статус изменён: «${STATUS_TITLES[sourceStatus]}» → «${STATUS_TITLES[destinationStatus]}».`,
+        };
+        void crmRepository.addActivityEvent(event);
+        void crmRepository.updateDealStatus(movedDeal.id, destinationStatus);
+        setActivityEvents((currentEvents) => [event, ...currentEvents]);
       }
 
-      return flattenColumns({
+      const movedDeals = flattenColumns({
         ...currentColumns,
         [sourceStatus]: moved.source,
         [destinationStatus]: moved.destination,
       });
+      void crmRepository.replaceDeals(movedDeals);
+      return movedDeals;
     });
   };
 
