@@ -8,6 +8,8 @@ import {
   type DropResult,
 } from '@hello-pangea/dnd';
 import {
+  AlertTriangle,
+  Bell,
   CalendarDays,
   CheckCircle2,
   CircleDollarSign,
@@ -32,7 +34,7 @@ import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DrawingElement } from '@/types/crm';
+import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DrawingElement, Reminder } from '@/types/crm';
 
 type NavigationItem = {
   title: string;
@@ -212,7 +214,7 @@ const INITIAL_DEALS: Deal[] = [
     createdAt: '2026-06-04',
     status: 'specApproval',
     owner: 'Олег Романов',
-    dueDate: '2026-06-28',
+    dueDate: '2026-06-15',
     price: '185 000 ₽',
     notes: 'Нужно уточнить глубину секций после повторного замера помещения.',
   },
@@ -254,6 +256,36 @@ const INITIAL_DEALS: Deal[] = [
   },
 ];
 
+
+const INITIAL_REMINDERS: Reminder[] = [
+  {
+    id: 'reminder-001',
+    dealId: 'deal-001',
+    clientId: 'client-001',
+    title: 'Позвонить Анне и подтвердить материалы',
+    dueAt: '2026-06-17T15:00:00.000Z',
+    isDone: false,
+    type: 'call',
+  },
+  {
+    id: 'reminder-002',
+    dealId: 'deal-003',
+    clientId: 'client-003',
+    title: 'Отправить спецификацию по переговорной',
+    dueAt: '2026-06-18T10:30:00.000Z',
+    isDone: false,
+    type: 'task',
+  },
+  {
+    id: 'reminder-003',
+    dealId: 'deal-005',
+    clientId: 'client-005',
+    title: 'Проверить финальную оплату',
+    dueAt: '2026-06-16T12:00:00.000Z',
+    isDone: true,
+    type: 'payment',
+  },
+];
 
 const INITIAL_DEAL_FILES: DealFile[] = [
   {
@@ -309,6 +341,34 @@ const statusStyles: Record<DealStatus, string> = {
   done: 'border-emerald-200 bg-emerald-50 text-emerald-700',
 };
 
+
+
+function toDateKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function getTomorrow(date: Date): Date {
+  const tomorrow = new Date(date);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow;
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00.000Z`));
+}
 
 function groupDealsByStatus(deals: Deal[]): Record<DealStatus, Deal[]> {
   return DEAL_STATUSES.reduce(
@@ -408,6 +468,21 @@ export default function HomePage() {
   }, [allDeals]);
 
   const totalDeals = useMemo(() => allDeals.length, [allDeals]);
+
+  const today = useMemo(() => new Date(), []);
+  const todayKey = toDateKey(today);
+  const tomorrowKey = toDateKey(getTomorrow(today));
+
+  const upcomingReminders = useMemo(() => {
+    return INITIAL_REMINDERS.filter((reminder) => {
+      const dueKey = toDateKey(new Date(reminder.dueAt));
+      return !reminder.isDone && (dueKey === todayKey || dueKey === tomorrowKey);
+    });
+  }, [todayKey, tomorrowKey]);
+
+  const overdueDeals = useMemo(() => {
+    return deals.filter((deal) => deal.status !== 'done' && deal.dueDate < todayKey);
+  }, [deals, todayKey]);
 
   const drawingDeal = useMemo(() => {
     return drawingDealId ? deals.find((deal) => deal.id === drawingDealId) ?? null : null;
@@ -627,7 +702,7 @@ export default function HomePage() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:flex">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(2,minmax(120px,auto))_minmax(320px,420px)]">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase text-slate-500">Сделок</p>
                   <p className="text-2xl font-bold text-slate-950">{totalDeals}</p>
@@ -636,6 +711,56 @@ export default function HomePage() {
                   <p className="text-xs font-semibold uppercase text-slate-500">Портфель</p>
                   <p className="text-2xl font-bold text-slate-950">{totalValue} ₽</p>
                 </div>
+                <section className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:col-span-2 xl:col-span-1" aria-label="Уведомления">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Bell className="h-4 w-4 text-amber-700" />
+                      <h2 className="text-sm font-bold text-slate-950">Уведомления</h2>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-1 text-xs font-bold text-amber-700">
+                      {upcomingReminders.length + overdueDeals.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <p className="mb-2 font-semibold uppercase tracking-[0.14em] text-amber-700">Сегодня / завтра</p>
+                      {upcomingReminders.length > 0 ? (
+                        <ul className="space-y-2">
+                          {upcomingReminders.map((reminder) => (
+                            <li key={reminder.id} className="rounded-xl bg-white p-2 text-slate-700">
+                              <p className="font-semibold text-slate-950">{reminder.title}</p>
+                              <p className="mt-1 text-slate-500">{formatDateTime(reminder.dueAt)}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="rounded-xl bg-white p-2 text-slate-500">Нет ближайших напоминаний.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="mb-2 flex items-center gap-1 font-semibold uppercase tracking-[0.14em] text-red-700">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Просрочено
+                      </p>
+                      {overdueDeals.length > 0 ? (
+                        <ul className="space-y-2">
+                          {overdueDeals.map((deal) => (
+                            <li key={deal.id} className="rounded-xl border border-red-100 bg-white p-2 text-slate-700">
+                              <p className="font-semibold text-slate-950">{deal.title}</p>
+                              <p className="mt-1">Клиент: {deal.client}</p>
+                              <p className="mt-1">Срок: {formatDate(deal.dueDate)}</p>
+                              <p className="mt-1">Статус: {STATUS_TITLES[deal.status]}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="rounded-xl bg-white p-2 text-slate-500">Нет просроченных сделок.</p>
+                      )}
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
           </header>

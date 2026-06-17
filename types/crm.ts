@@ -56,6 +56,17 @@ export type Deal = {
   notes: string;
 };
 
+
+export type Reminder = {
+  id: string;
+  dealId: string;
+  clientId: string;
+  title: string;
+  dueAt: string;
+  isDone: boolean;
+  type: 'call' | 'meeting' | 'payment' | 'task';
+};
+
 export type Communication = {
   id: string;
   date: string;
