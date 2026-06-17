@@ -27,7 +27,7 @@ import {
   Wrench,
 } from 'lucide-react';
 
-type DealStatus = 'Обращение' | 'Согласование ТЗ' | 'В работе' | 'Выполнено';
+type DealStatus = 'lead' | 'specApproval' | 'inProgress' | 'done';
 
 type Deal = {
   id: string;
@@ -67,7 +67,14 @@ type NavigationItem = {
   icon: React.ComponentType<{ className?: string }>;
 };
 
-const DEAL_COLUMNS: DealStatus[] = ['Обращение', 'Согласование ТЗ', 'В работе', 'Выполнено'];
+const DEAL_STATUSES: DealStatus[] = ['lead', 'specApproval', 'inProgress', 'done'];
+
+const STATUS_TITLES: Record<DealStatus, string> = {
+  lead: 'Обращение',
+  specApproval: 'Согласование ТЗ',
+  inProgress: 'В работе',
+  done: 'Выполнено',
+};
 
 const NAVIGATION_ITEMS: NavigationItem[] = [
   { title: 'Главная', icon: Home },
@@ -219,7 +226,7 @@ const INITIAL_DEALS: Deal[] = [
     title: 'Кухонный гарнитур из массива',
     client: 'Анна Смирнова',
     createdAt: '2026-06-02',
-    status: 'Обращение',
+    status: 'lead',
     owner: 'Мария Орлова',
     dueDate: '2026-07-12',
     price: '420 000 ₽',
@@ -231,7 +238,7 @@ const INITIAL_DEALS: Deal[] = [
     title: 'Шкаф-купе в прихожую',
     client: 'Илья Кузнецов',
     createdAt: '2026-06-04',
-    status: 'Согласование ТЗ',
+    status: 'specApproval',
     owner: 'Олег Романов',
     dueDate: '2026-06-28',
     price: '185 000 ₽',
@@ -243,7 +250,7 @@ const INITIAL_DEALS: Deal[] = [
     title: 'Комплект мебели для переговорной',
     client: 'ООО «Северный Вектор»',
     createdAt: '2026-05-25',
-    status: 'В работе',
+    status: 'inProgress',
     owner: 'Екатерина Волкова',
     dueDate: '2026-07-05',
     price: '760 000 ₽',
@@ -255,7 +262,7 @@ const INITIAL_DEALS: Deal[] = [
     title: 'Детская комната под ключ',
     client: 'Павел Морозов',
     createdAt: '2026-05-18',
-    status: 'В работе',
+    status: 'inProgress',
     owner: 'Мария Орлова',
     dueDate: '2026-06-30',
     price: '315 000 ₽',
@@ -267,7 +274,7 @@ const INITIAL_DEALS: Deal[] = [
     title: 'Ресепшен для клиники',
     client: 'Медцентр «Альта»',
     createdAt: '2026-05-10',
-    status: 'Выполнено',
+    status: 'done',
     owner: 'Олег Романов',
     dueDate: '2026-06-14',
     price: '540 000 ₽',
@@ -276,11 +283,26 @@ const INITIAL_DEALS: Deal[] = [
 ];
 
 const statusStyles: Record<DealStatus, string> = {
-  Обращение: 'border-sky-200 bg-sky-50 text-sky-700',
-  'Согласование ТЗ': 'border-amber-200 bg-amber-50 text-amber-700',
-  'В работе': 'border-violet-200 bg-violet-50 text-violet-700',
-  Выполнено: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  lead: 'border-slate-200 bg-slate-100 text-slate-700',
+  specApproval: 'border-orange-200 bg-orange-50 text-orange-700',
+  inProgress: 'border-blue-200 bg-blue-50 text-blue-700',
+  done: 'border-emerald-200 bg-emerald-50 text-emerald-700',
 };
+
+
+function groupDealsByStatus(deals: Deal[]): Record<DealStatus, Deal[]> {
+  return DEAL_STATUSES.reduce(
+    (accumulator, status) => ({
+      ...accumulator,
+      [status]: deals.filter((deal) => deal.status === status),
+    }),
+    {} as Record<DealStatus, Deal[]>,
+  );
+}
+
+function flattenColumns(columns: Record<DealStatus, Deal[]>): Deal[] {
+  return DEAL_STATUSES.flatMap((status) => columns[status]);
+}
 
 function reorderColumn(items: Deal[], startIndex: number, endIndex: number): Deal[] {
   const nextItems = Array.from(items);
@@ -313,18 +335,10 @@ function moveDealBetweenColumns(
 
 export default function HomePage() {
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
-  const [columns, setColumns] = useState<Record<DealStatus, Deal[]>>(() => {
-    return DEAL_COLUMNS.reduce(
-      (accumulator, status) => ({
-        ...accumulator,
-        [status]: INITIAL_DEALS.filter((deal) => deal.status === status),
-      }),
-      {} as Record<DealStatus, Deal[]>,
-    );
-  });
+  const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
 
-
-  const allDeals = useMemo(() => Object.values(columns).flat(), [columns]);
+  const columns = useMemo(() => groupDealsByStatus(deals), [deals]);
+  const allDeals = deals;
 
   const selectedClient = useMemo(() => {
     return INITIAL_CLIENTS.find((client) => client.id === selectedClientId) ?? INITIAL_CLIENTS[0];
@@ -352,7 +366,7 @@ export default function HomePage() {
     const sourceStatus = source.droppableId as DealStatus;
     const destinationStatus = destination.droppableId as DealStatus;
 
-    if (!DEAL_COLUMNS.includes(sourceStatus) || !DEAL_COLUMNS.includes(destinationStatus)) {
+    if (!DEAL_STATUSES.includes(sourceStatus) || !DEAL_STATUSES.includes(destinationStatus)) {
       return;
     }
 
@@ -360,12 +374,14 @@ export default function HomePage() {
       return;
     }
 
-    setColumns((currentColumns) => {
+    setDeals((currentDeals) => {
+      const currentColumns = groupDealsByStatus(currentDeals);
+
       if (sourceStatus === destinationStatus) {
-        return {
+        return flattenColumns({
           ...currentColumns,
           [sourceStatus]: reorderColumn(currentColumns[sourceStatus], source.index, destination.index),
-        };
+        });
       }
 
       const moved = moveDealBetweenColumns(
@@ -376,11 +392,11 @@ export default function HomePage() {
         destinationStatus,
       );
 
-      return {
+      return flattenColumns({
         ...currentColumns,
         [sourceStatus]: moved.source,
         [destinationStatus]: moved.destination,
-      };
+      });
     });
   };
 
@@ -531,7 +547,7 @@ export default function HomePage() {
                               <p className="mt-1 text-slate-500">Создано: {deal.createdAt} · Срок: {deal.dueDate}</p>
                             </div>
                             <span className={`shrink-0 rounded-full border px-2 py-1 text-xs font-bold ${statusStyles[deal.status]}`}>
-                              {deal.status}
+                              {STATUS_TITLES[deal.status]}
                             </span>
                           </div>
                           <p className="mt-2 font-bold text-slate-950">{deal.price}</p>
@@ -565,15 +581,15 @@ export default function HomePage() {
           <div className="flex-1 overflow-x-auto px-5 py-6 sm:px-8">
             <DragDropContext onDragEnd={handleDragEnd}>
               <div className="grid min-w-[1120px] grid-cols-4 gap-5">
-                {DEAL_COLUMNS.map((status) => (
+                {DEAL_STATUSES.map((status) => (
                   <section key={status} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="mb-4 flex items-center justify-between">
                       <div>
-                        <h2 className="font-bold text-slate-950">{status}</h2>
+                        <h2 className="font-bold text-slate-950">{STATUS_TITLES[status]}</h2>
                         <p className="text-sm text-slate-500">{columns[status].length} карточек</p>
                       </div>
                       <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusStyles[status]}`}>
-                        {status}
+                        {STATUS_TITLES[status]}
                       </span>
                     </div>
 
@@ -625,7 +641,7 @@ export default function HomePage() {
                                         <Wrench className="h-4 w-4" />
                                         Статус
                                       </dt>
-                                      <dd className="font-medium text-slate-900">{deal.status}</dd>
+                                      <dd className="font-medium text-slate-900">{STATUS_TITLES[deal.status]}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt className="flex items-center gap-2">
