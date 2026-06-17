@@ -2,11 +2,20 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  DragDropContext,
-  Draggable,
-  Droppable,
-  type DropResult,
-} from '@hello-pangea/dnd';
+  DndContext,
+  PointerSensor,
+  closestCorners,
+  type DragEndEvent,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   AlertTriangle,
   Bell,
@@ -197,6 +206,86 @@ function moveDealBetweenColumns(
   };
 }
 
+type KanbanDragLocation = {
+  droppableId: DealStatus;
+  index: number;
+};
+
+type KanbanDragResult = {
+  source: KanbanDragLocation;
+  destination: KanbanDragLocation | null;
+};
+
+type KanbanColumnProps = {
+  status: DealStatus;
+  children: React.ReactNode;
+};
+
+function KanbanColumn({ status, children }: KanbanColumnProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: status,
+    data: {
+      type: 'column',
+      status,
+    },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-[620px] rounded-2xl p-2 transition ${
+        isOver ? 'bg-slate-100 ring-2 ring-slate-300' : 'bg-slate-50'
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
+type SortableDealCardProps = {
+  deal: Deal;
+  index: number;
+  status: DealStatus;
+  isDragDisabled: boolean;
+  children: React.ReactNode;
+};
+
+function SortableDealCard({ deal, index, status, isDragDisabled, children }: SortableDealCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: deal.id,
+    disabled: isDragDisabled,
+    data: {
+      type: 'deal',
+      status,
+      index,
+    },
+  });
+
+  return (
+    <article
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={`card mb-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${
+        isDragging ? 'rotate-1 shadow-2xl ring-2 ring-slate-300' : ''
+      } ${isDragDisabled ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+    >
+      {children}
+    </article>
+  );
+}
+
 export default function HomePage() {
   const [activeSection, setActiveSection] = useState<ActiveSection>('home');
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
@@ -269,6 +358,13 @@ export default function HomePage() {
   const hasSearchQuery = normalizedSearchQuery.length > 0;
   const hasSearchResults = filteredClients.length > 0 || filteredDeals.length > 0;
   const activeNavigationItem = NAVIGATION_ITEMS.find((item) => item.id === activeSection) ?? NAVIGATION_ITEMS[0];
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+  );
 
   const selectedClient = useMemo(() => {
     return filteredClients.find((client) => client.id === selectedClientId) ?? filteredClients[0] ?? null;
@@ -421,7 +517,7 @@ export default function HomePage() {
     };
   }, []);
 
-  const handleDragEnd = (result: DropResult) => {
+  const handleDragEnd = (result: KanbanDragResult) => {
     const { destination, source } = result;
 
     if (!destination) {
@@ -484,6 +580,37 @@ export default function HomePage() {
       });
       void crmRepository.replaceDeals(movedDeals);
       return movedDeals;
+    });
+  };
+
+  const handleKanbanDragEnd = (event: DragEndEvent) => {
+    if (hasSearchQuery) {
+      return;
+    }
+
+    const activeStatus = event.active.data.current?.status as DealStatus | undefined;
+    const activeIndex = event.active.data.current?.index as number | undefined;
+    const overStatus = event.over?.data.current?.status as DealStatus | undefined;
+    const overIndex = event.over?.data.current?.index as number | undefined;
+    const overType = event.over?.data.current?.type as string | undefined;
+
+    if (!activeStatus || activeIndex === undefined || !overStatus) {
+      return;
+    }
+
+    const destinationIndex = overType === 'column'
+      ? columns[overStatus].length
+      : overIndex ?? columns[overStatus].length;
+
+    handleDragEnd({
+      source: {
+        droppableId: activeStatus,
+        index: activeIndex,
+      },
+      destination: {
+        droppableId: overStatus,
+        index: destinationIndex,
+      },
     });
   };
 
@@ -805,7 +932,7 @@ export default function HomePage() {
 
           {activeSection === 'deals' ? (
           <div className="flex-1 overflow-x-auto px-5 py-6 sm:px-8">
-            <DragDropContext onDragEnd={handleDragEnd}>
+            <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleKanbanDragEnd}>
               <div className="grid min-w-[1120px] grid-cols-4 gap-5">
                 {DEAL_STATUSES.map((status) => (
                   <section key={status} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -819,26 +946,16 @@ export default function HomePage() {
                       </span>
                     </div>
 
-                    <Droppable droppableId={status}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.droppableProps}
-                          className={`min-h-[620px] rounded-2xl p-2 transition ${
-                            snapshot.isDraggingOver ? 'bg-slate-100 ring-2 ring-slate-300' : 'bg-slate-50'
-                          }`}
-                        >
-                          {columns[status].map((deal, index) => (
-                            <Draggable key={deal.id} draggableId={deal.id} index={index} isDragDisabled={hasSearchQuery}>
-                              {(dragProvided, dragSnapshot) => (
-                                <article
-                                  ref={dragProvided.innerRef}
-                                  {...dragProvided.draggableProps}
-                                  {...dragProvided.dragHandleProps}
-                                  className={`card mb-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${
-                                    dragSnapshot.isDragging ? 'rotate-1 shadow-2xl ring-2 ring-slate-300' : ''
-                                  }`}
-                                >
+                    <SortableContext items={columns[status].map((deal) => deal.id)} strategy={verticalListSortingStrategy}>
+                      <KanbanColumn status={status}>
+                        {columns[status].map((deal, index) => (
+                          <SortableDealCard
+                            key={deal.id}
+                            deal={deal}
+                            index={index}
+                            status={status}
+                            isDragDisabled={hasSearchQuery}
+                          >
                                   <div className="mb-3 flex items-start justify-between gap-3">
                                     <div>
                                       <h3 className="font-bold leading-6 text-slate-950">{deal.title}</h3>
@@ -947,18 +1064,14 @@ export default function HomePage() {
                                   </section>
 
                                   <ActivityTimeline events={activityEvents.filter((event) => event.dealId === deal.id)} />
-                                </article>
-                              )}
-                            </Draggable>
-                          ))}
-                          {provided.placeholder}
-                        </div>
-                      )}
-                    </Droppable>
+                          </SortableDealCard>
+                        ))}
+                      </KanbanColumn>
+                    </SortableContext>
                   </section>
                 ))}
               </div>
-            </DragDropContext>
+            </DndContext>
           </div>
           ) : null}
 
