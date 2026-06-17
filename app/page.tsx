@@ -16,7 +16,11 @@ import {
   FolderOpen,
   Home,
   LayoutDashboard,
+  Mail,
+  MapPin,
+  MessageCircle,
   MessageSquareText,
+  Phone,
   Settings,
   UserRound,
   UsersRound,
@@ -28,6 +32,7 @@ type DealStatus = 'Обращение' | 'Согласование ТЗ' | 'В �
 type Deal = {
   id: string;
   title: string;
+  clientId: string;
   client: string;
   createdAt: string;
   status: DealStatus;
@@ -35,6 +40,26 @@ type Deal = {
   dueDate: string;
   price: string;
   notes: string;
+};
+
+type Communication = {
+  id: string;
+  date: string;
+  channel: string;
+  summary: string;
+  manager: string;
+};
+
+type Client = {
+  id: string;
+  name: string;
+  company: string;
+  phone: string;
+  email: string;
+  messengers: string[];
+  address: string;
+  comments: string;
+  communications: Communication[];
 };
 
 type NavigationItem = {
@@ -53,9 +78,144 @@ const NAVIGATION_ITEMS: NavigationItem[] = [
   { title: 'Настройки', icon: Settings },
 ];
 
+
+const INITIAL_CLIENTS: Client[] = [
+  {
+    id: 'client-001',
+    name: 'Анна Смирнова',
+    company: 'Частный заказчик',
+    phone: '+7 (921) 447-18-02',
+    email: 'anna.smirnova@example.com',
+    messengers: ['Telegram @asmirnova', 'WhatsApp'],
+    address: 'Санкт-Петербург, ул. Парадная, 8',
+    comments: 'Предпочитает вечерние звонки после 18:00, просит отправлять визуализации в Telegram.',
+    communications: [
+      {
+        id: 'comm-001',
+        date: '2026-06-02 11:20',
+        channel: 'Телефон',
+        summary: 'Первичный запрос на кухню из массива, зафиксированы размеры помещения.',
+        manager: 'Мария Орлова',
+      },
+      {
+        id: 'comm-002',
+        date: '2026-06-06 19:05',
+        channel: 'Telegram',
+        summary: 'Клиент прислал референсы скрытых ручек и теплой подсветки рабочей зоны.',
+        manager: 'Мария Орлова',
+      },
+    ],
+  },
+  {
+    id: 'client-002',
+    name: 'Илья Кузнецов',
+    company: 'Частный заказчик',
+    phone: '+7 (916) 302-44-81',
+    email: 'ilya.kuznetsov@example.com',
+    messengers: ['WhatsApp', 'Viber'],
+    address: 'Москва, Ленинградский пр-т, 54',
+    comments: 'Нужна детализация стоимости по материалам и отдельная смета на монтаж.',
+    communications: [
+      {
+        id: 'comm-003',
+        date: '2026-06-04 14:10',
+        channel: 'Email',
+        summary: 'Получены планы прихожей и пожелания по зеркальным дверям шкафа.',
+        manager: 'Олег Романов',
+      },
+      {
+        id: 'comm-004',
+        date: '2026-06-11 10:35',
+        channel: 'Телефон',
+        summary: 'Согласован повторный замер для уточнения глубины секций.',
+        manager: 'Олег Романов',
+      },
+    ],
+  },
+  {
+    id: 'client-003',
+    name: 'ООО «Северный Вектор»',
+    company: 'ООО «Северный Вектор»',
+    phone: '+7 (812) 555-20-41',
+    email: 'office@north-vector.example',
+    messengers: ['Telegram @north_vector_office'],
+    address: 'Санкт-Петербург, БЦ «Атлас», наб. Обводного канала, 118',
+    comments: 'Корпоративный клиент, требуется закрывающая документация и согласование через отдел закупок.',
+    communications: [
+      {
+        id: 'comm-005',
+        date: '2026-05-25 09:40',
+        channel: 'Email',
+        summary: 'Передано ТЗ на переговорную и брендбук для подбора отделки.',
+        manager: 'Екатерина Волкова',
+      },
+      {
+        id: 'comm-006',
+        date: '2026-06-09 16:00',
+        channel: 'Встреча',
+        summary: 'Подписан протокол согласования чертежей и спецификации материалов.',
+        manager: 'Екатерина Волкова',
+      },
+    ],
+  },
+  {
+    id: 'client-004',
+    name: 'Павел Морозов',
+    company: 'Частный заказчик',
+    phone: '+7 (925) 603-77-16',
+    email: 'pavel.morozov@example.com',
+    messengers: ['Telegram @pmorozov'],
+    address: 'Москва, ул. Мосфильмовская, 33',
+    comments: 'Особое внимание безопасности детской фурнитуры, все острые углы должны быть скруглены.',
+    communications: [
+      {
+        id: 'comm-007',
+        date: '2026-05-18 12:30',
+        channel: 'Телефон',
+        summary: 'Обсуждена концепция детской комнаты под ключ и сроки монтажа.',
+        manager: 'Мария Орлова',
+      },
+      {
+        id: 'comm-008',
+        date: '2026-06-13 18:15',
+        channel: 'Telegram',
+        summary: 'Отправлены варианты палитры фасадов для финального выбора.',
+        manager: 'Мария Орлова',
+      },
+    ],
+  },
+  {
+    id: 'client-005',
+    name: 'Медцентр «Альта»',
+    company: 'ООО «Альта Мед»',
+    phone: '+7 (495) 120-48-90',
+    email: 'admin@alta-med.example',
+    messengers: ['WhatsApp Business'],
+    address: 'Москва, ул. Большая Полянка, 21',
+    comments: 'После монтажа ресепшена планируется заявка на мебель для кабинетов врачей.',
+    communications: [
+      {
+        id: 'comm-009',
+        date: '2026-05-10 15:00',
+        channel: 'Встреча',
+        summary: 'Зафиксированы требования к износостойкому покрытию и санитарной обработке.',
+        manager: 'Олег Романов',
+      },
+      {
+        id: 'comm-010',
+        date: '2026-06-14 13:45',
+        channel: 'Email',
+        summary: 'Переданы подписанные акты, ожидается финальная оплата по счету.',
+        manager: 'Олег Романов',
+      },
+    ],
+  },
+];
+
 const INITIAL_DEALS: Deal[] = [
   {
     id: 'deal-001',
+    clientId: 'client-001',
     title: 'Кухонный гарнитур из массива',
     client: 'Анна Смирнова',
     createdAt: '2026-06-02',
@@ -67,6 +227,7 @@ const INITIAL_DEALS: Deal[] = [
   },
   {
     id: 'deal-002',
+    clientId: 'client-002',
     title: 'Шкаф-купе в прихожую',
     client: 'Илья Кузнецов',
     createdAt: '2026-06-04',
@@ -78,6 +239,7 @@ const INITIAL_DEALS: Deal[] = [
   },
   {
     id: 'deal-003',
+    clientId: 'client-003',
     title: 'Комплект мебели для переговорной',
     client: 'ООО «Северный Вектор»',
     createdAt: '2026-05-25',
@@ -89,6 +251,7 @@ const INITIAL_DEALS: Deal[] = [
   },
   {
     id: 'deal-004',
+    clientId: 'client-004',
     title: 'Детская комната под ключ',
     client: 'Павел Морозов',
     createdAt: '2026-05-18',
@@ -100,6 +263,7 @@ const INITIAL_DEALS: Deal[] = [
   },
   {
     id: 'deal-005',
+    clientId: 'client-005',
     title: 'Ресепшен для клиники',
     client: 'Медцентр «Альта»',
     createdAt: '2026-05-10',
@@ -148,6 +312,7 @@ function moveDealBetweenColumns(
 }
 
 export default function HomePage() {
+  const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
   const [columns, setColumns] = useState<Record<DealStatus, Deal[]>>(() => {
     return DEAL_COLUMNS.reduce(
       (accumulator, status) => ({
@@ -158,14 +323,24 @@ export default function HomePage() {
     );
   });
 
+
+  const allDeals = useMemo(() => Object.values(columns).flat(), [columns]);
+
+  const selectedClient = useMemo(() => {
+    return INITIAL_CLIENTS.find((client) => client.id === selectedClientId) ?? INITIAL_CLIENTS[0];
+  }, [selectedClientId]);
+
+  const selectedClientDeals = useMemo(() => {
+    return allDeals.filter((deal) => deal.clientId === selectedClient.id);
+  }, [allDeals, selectedClient.id]);
+
   const totalValue = useMemo(() => {
-    return Object.values(columns)
-      .flat()
+    return allDeals
       .reduce((sum, deal) => sum + Number(deal.price.replace(/[^\d]/g, '')), 0)
       .toLocaleString('ru-RU');
-  }, [columns]);
+  }, [allDeals]);
 
-  const totalDeals = useMemo(() => Object.values(columns).flat().length, [columns]);
+  const totalDeals = useMemo(() => allDeals.length, [allDeals]);
 
   const handleDragEnd = (result: DropResult) => {
     const { destination, source } = result;
@@ -275,6 +450,118 @@ export default function HomePage() {
             </div>
           </header>
 
+          <section className="border-b border-slate-200 bg-slate-50 px-5 py-6 sm:px-8">
+            <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+              <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-950">Клиенты</h2>
+                    <p className="text-sm text-slate-500">Выберите клиента для просмотра полной карточки</p>
+                  </div>
+                  <UsersRound className="h-5 w-5 text-slate-400" />
+                </div>
+
+                <div className="space-y-2">
+                  {INITIAL_CLIENTS.map((client) => {
+                    const isSelected = client.id === selectedClient.id;
+                    const clientDealsCount = allDeals.filter((deal) => deal.clientId === client.id).length;
+
+                    return (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => setSelectedClientId(client.id)}
+                        className={`w-full rounded-2xl border p-3 text-left transition ${
+                          isSelected
+                            ? 'border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/15'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="block font-bold">{client.name}</span>
+                        <span className={`mt-1 block text-sm ${isSelected ? 'text-slate-200' : 'text-slate-500'}`}>
+                          {client.company} · {clientDealsCount} сделок
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Карточка клиента</p>
+                    <h2 className="mt-2 text-2xl font-bold text-slate-950">{selectedClient.name}</h2>
+                    <p className="text-sm text-slate-500">{selectedClient.company}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    <p className="font-semibold text-slate-950">Комментарий менеджера</p>
+                    <p className="mt-1 max-w-xl leading-6">{selectedClient.comments}</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl bg-slate-50 p-3 text-sm">
+                    <p className="mb-1 flex items-center gap-2 font-semibold text-slate-950"><Phone className="h-4 w-4" />Телефон</p>
+                    <p className="text-slate-600">{selectedClient.phone}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3 text-sm">
+                    <p className="mb-1 flex items-center gap-2 font-semibold text-slate-950"><Mail className="h-4 w-4" />Email</p>
+                    <p className="break-all text-slate-600">{selectedClient.email}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3 text-sm">
+                    <p className="mb-1 flex items-center gap-2 font-semibold text-slate-950"><MessageCircle className="h-4 w-4" />Мессенджеры</p>
+                    <p className="text-slate-600">{selectedClient.messengers.join(', ')}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3 text-sm">
+                    <p className="mb-1 flex items-center gap-2 font-semibold text-slate-950"><MapPin className="h-4 w-4" />Адрес</p>
+                    <p className="text-slate-600">{selectedClient.address}</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-5 lg:grid-cols-2">
+                  <section className="rounded-2xl border border-slate-200 p-4">
+                    <h3 className="font-bold text-slate-950">История заказов</h3>
+                    <div className="mt-3 space-y-3">
+                      {selectedClientDeals.map((deal) => (
+                        <div key={deal.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-slate-950">{deal.title}</p>
+                              <p className="mt-1 text-slate-500">Создано: {deal.createdAt} · Срок: {deal.dueDate}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-1 text-xs font-bold ${statusStyles[deal.status]}`}>
+                              {deal.status}
+                            </span>
+                          </div>
+                          <p className="mt-2 font-bold text-slate-950">{deal.price}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-slate-200 p-4">
+                    <h3 className="font-bold text-slate-950">История коммуникаций</h3>
+                    <ol className="mt-3 space-y-3">
+                      {selectedClient.communications.map((communication) => (
+                        <li key={communication.id} className="rounded-2xl bg-slate-50 p-3 text-sm">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-semibold text-slate-950">{communication.channel}</p>
+                            <time className="text-xs text-slate-500">{communication.date}</time>
+                          </div>
+                          <p className="mt-2 leading-5 text-slate-600">{communication.summary}</p>
+                          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                            {communication.manager}
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                </div>
+              </article>
+            </div>
+          </section>
+
           <div className="flex-1 overflow-x-auto px-5 py-6 sm:px-8">
             <DragDropContext onDragEnd={handleDragEnd}>
               <div className="grid min-w-[1120px] grid-cols-4 gap-5">
@@ -313,10 +600,14 @@ export default function HomePage() {
                                   <div className="mb-3 flex items-start justify-between gap-3">
                                     <div>
                                       <h3 className="font-bold leading-6 text-slate-950">{deal.title}</h3>
-                                      <p className="mt-1 flex items-center gap-2 text-sm text-slate-600">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedClientId(deal.clientId)}
+                                        className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-950"
+                                      >
                                         <UserRound className="h-4 w-4" />
                                         {deal.client}
-                                      </p>
+                                      </button>
                                     </div>
                                     <CheckCircle2 className="mt-1 h-5 w-5 text-slate-300" />
                                   </div>
