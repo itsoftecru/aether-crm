@@ -21,6 +21,7 @@ import {
   MessageCircle,
   MessageSquareText,
   Phone,
+  Search,
   Settings,
   UserRound,
   UsersRound,
@@ -358,18 +359,47 @@ export default function HomePage() {
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_EVENTS);
   const [drawingDealId, setDrawingDealId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const objectUrlsRef = useRef<string[]>([]);
 
-  const columns = useMemo(() => groupDealsByStatus(deals), [deals]);
-  const allDeals = deals;
+  const normalizedSearchQuery = searchQuery.toLowerCase().trim();
+
+  const filteredClients = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return INITIAL_CLIENTS;
+    }
+
+    return INITIAL_CLIENTS.filter((client) =>
+      [client.name, client.company, client.phone, client.email].some((value) =>
+        value.toLowerCase().trim().includes(normalizedSearchQuery),
+      ),
+    );
+  }, [normalizedSearchQuery]);
+
+  const filteredDeals = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return deals;
+    }
+
+    return deals.filter((deal) =>
+      [deal.id, deal.title, deal.client, deal.notes].some((value) =>
+        value.toLowerCase().trim().includes(normalizedSearchQuery),
+      ),
+    );
+  }, [deals, normalizedSearchQuery]);
+
+  const columns = useMemo(() => groupDealsByStatus(filteredDeals), [filteredDeals]);
+  const allDeals = filteredDeals;
+  const hasSearchQuery = normalizedSearchQuery.length > 0;
+  const hasSearchResults = filteredClients.length > 0 || filteredDeals.length > 0;
 
   const selectedClient = useMemo(() => {
-    return INITIAL_CLIENTS.find((client) => client.id === selectedClientId) ?? INITIAL_CLIENTS[0];
-  }, [selectedClientId]);
+    return filteredClients.find((client) => client.id === selectedClientId) ?? filteredClients[0] ?? null;
+  }, [filteredClients, selectedClientId]);
 
   const selectedClientDeals = useMemo(() => {
-    return allDeals.filter((deal) => deal.clientId === selectedClient.id);
-  }, [allDeals, selectedClient.id]);
+    return selectedClient ? allDeals.filter((deal) => deal.clientId === selectedClient.id) : [];
+  }, [allDeals, selectedClient]);
 
   const totalValue = useMemo(() => {
     return allDeals
@@ -380,8 +410,8 @@ export default function HomePage() {
   const totalDeals = useMemo(() => allDeals.length, [allDeals]);
 
   const drawingDeal = useMemo(() => {
-    return drawingDealId ? allDeals.find((deal) => deal.id === drawingDealId) ?? null : null;
-  }, [allDeals, drawingDealId]);
+    return drawingDealId ? deals.find((deal) => deal.id === drawingDealId) ?? null : null;
+  }, [deals, drawingDealId]);
 
   const handleDealFilesSelected = useCallback((dealId: string, files: File[]) => {
     setDealFiles((currentFiles) => {
@@ -486,6 +516,10 @@ export default function HomePage() {
       return;
     }
 
+    if (hasSearchQuery) {
+      return;
+    }
+
     setDeals((currentDeals) => {
       const currentColumns = groupDealsByStatus(currentDeals);
 
@@ -525,6 +559,12 @@ export default function HomePage() {
       });
     });
   };
+
+  useEffect(() => {
+    if (selectedClient && selectedClient.id !== selectedClientId) {
+      setSelectedClientId(selectedClient.id);
+    }
+  }, [selectedClient, selectedClientId]);
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -600,6 +640,29 @@ export default function HomePage() {
             </div>
           </header>
 
+          <section className="border-b border-slate-200 bg-white px-5 py-4 sm:px-8">
+            <label htmlFor="workspace-search" className="mb-2 block text-sm font-semibold text-slate-700">
+              Поиск по клиентам и сделкам
+            </label>
+            <div className="relative max-w-3xl">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              <input
+                id="workspace-search"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Введите имя, компанию, телефон, email, номер сделки, название или заметку"
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-12 pr-4 text-sm font-medium text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-200"
+              />
+            </div>
+            {hasSearchQuery ? (
+              <p className="mt-3 text-sm text-slate-500">
+                Найдено клиентов: {filteredClients.length}, сделок: {filteredDeals.length}.
+              </p>
+            ) : null}
+          </section>
+
+          {hasSearchResults ? (
           <section className="border-b border-slate-200 bg-slate-50 px-5 py-6 sm:px-8">
             <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
               <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -612,8 +675,8 @@ export default function HomePage() {
                 </div>
 
                 <div className="space-y-2">
-                  {INITIAL_CLIENTS.map((client) => {
-                    const isSelected = client.id === selectedClient.id;
+                  {filteredClients.length > 0 ? filteredClients.map((client) => {
+                    const isSelected = client.id === selectedClient?.id;
                     const clientDealsCount = allDeals.filter((deal) => deal.clientId === client.id).length;
 
                     return (
@@ -633,10 +696,15 @@ export default function HomePage() {
                         </span>
                       </button>
                     );
-                  })}
+                  }) : (
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm leading-6 text-slate-500">
+                      Клиенты не найдены. Попробуйте изменить поисковый запрос.
+                    </div>
+                  )}
                 </div>
               </div>
 
+              {selectedClient ? (
               <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -709,8 +777,27 @@ export default function HomePage() {
                   </section>
                 </div>
               </article>
+              ) : (
+              <article className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
+                <h2 className="text-xl font-bold text-slate-950">Клиент не выбран</h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  По текущему запросу нет клиентов. Карточка клиента появится после изменения поиска.
+                </p>
+              </article>
+              )}
             </div>
           </section>
+          ) : (
+          <section className="border-b border-slate-200 bg-slate-50 px-5 py-10 sm:px-8">
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+              <h2 className="text-2xl font-bold text-slate-950">Ничего не найдено</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+                По запросу «{searchQuery.trim()}» нет совпадений среди клиентов и сделок.
+                Проверьте написание или попробуйте другой номер телефона, email, название сделки или заметку.
+              </p>
+            </div>
+          </section>
+          )}
 
           <div className="flex-1 overflow-x-auto px-5 py-6 sm:px-8">
             <DragDropContext onDragEnd={handleDragEnd}>
@@ -737,7 +824,7 @@ export default function HomePage() {
                           }`}
                         >
                           {columns[status].map((deal, index) => (
-                            <Draggable key={deal.id} draggableId={deal.id} index={index}>
+                            <Draggable key={deal.id} draggableId={deal.id} index={index} isDragDisabled={hasSearchQuery}>
                               {(dragProvided, dragSnapshot) => (
                                 <article
                                   ref={dragProvided.innerRef}
