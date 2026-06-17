@@ -26,10 +26,11 @@ import {
   UsersRound,
   Wrench,
 } from 'lucide-react';
+import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import type { Client, Deal, DealFile, DealStatus } from '@/types/crm';
+import type { Client, Deal, DealFile, DealStatus, DealTimelineEvent, DrawingElement } from '@/types/crm';
 
 type NavigationItem = {
   title: string;
@@ -275,6 +276,16 @@ const INITIAL_DEAL_FILES: DealFile[] = [
   },
 ];
 
+const INITIAL_DEAL_TIMELINE_EVENTS: DealTimelineEvent[] = [
+  {
+    id: 'timeline-deal-003-001',
+    dealId: 'deal-003',
+    title: 'Утверждены чертежи',
+    createdAt: '2026-06-10T13:45:00.000Z',
+    description: 'Менеджер приложил план переговорной и зафиксировал согласование с клиентом.',
+  },
+];
+
 const statusStyles: Record<DealStatus, string> = {
   lead: 'border-slate-200 bg-slate-100 text-slate-700',
   specApproval: 'border-orange-200 bg-orange-50 text-orange-700',
@@ -330,6 +341,8 @@ export default function HomePage() {
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
+  const [dealTimelineEvents, setDealTimelineEvents] = useState<DealTimelineEvent[]>(INITIAL_DEAL_TIMELINE_EVENTS);
+  const [drawingDealId, setDrawingDealId] = useState<string | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
 
   const columns = useMemo(() => groupDealsByStatus(deals), [deals]);
@@ -350,6 +363,10 @@ export default function HomePage() {
   }, [allDeals]);
 
   const totalDeals = useMemo(() => allDeals.length, [allDeals]);
+
+  const drawingDeal = useMemo(() => {
+    return drawingDealId ? allDeals.find((deal) => deal.id === drawingDealId) ?? null : null;
+  }, [allDeals, drawingDealId]);
 
   const handleDealFilesSelected = useCallback((dealId: string, files: File[]) => {
     setDealFiles((currentFiles) => {
@@ -373,6 +390,46 @@ export default function HomePage() {
       return [...stagedFiles, ...currentFiles];
     });
   }, []);
+
+  const handleDrawingSave = useCallback(
+    (dealId: string, drawing: { name: string; elements: DrawingElement[]; svg: string }) => {
+      const blob = new Blob([drawing.svg], { type: 'image/svg+xml;charset=utf-8' });
+      const previewUrl = URL.createObjectURL(blob);
+      objectUrlsRef.current.push(previewUrl);
+
+      setDealFiles((currentFiles) => [
+        {
+          id: `drawing-file-${dealId}-${Date.now()}`,
+          dealId,
+          name: drawing.name,
+          type: 'image/svg+xml',
+          size: blob.size,
+          version: getNextFileVersion(currentFiles, dealId, drawing.name),
+          uploadedAt: new Date().toISOString(),
+          previewUrl,
+          drawingData: {
+            format: 'svg',
+            elements: drawing.elements,
+            svg: drawing.svg,
+          },
+        },
+        ...currentFiles,
+      ]);
+
+      setDealTimelineEvents((currentEvents) => [
+        {
+          id: `timeline-${dealId}-${Date.now()}`,
+          dealId,
+          title: 'Создан чертеж',
+          createdAt: new Date().toISOString(),
+          description: `Добавлен чертеж «${drawing.name}» с ${drawing.elements.length} объектами.`,
+        },
+        ...currentEvents,
+      ]);
+      setDrawingDealId(null);
+    },
+    [],
+  );
 
   useEffect(() => {
     return () => {
@@ -426,6 +483,14 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
+      {drawingDeal ? (
+        <DrawingEditor
+          dealId={drawingDeal.id}
+          dealTitle={drawingDeal.title}
+          onSave={handleDrawingSave}
+          onClose={() => setDrawingDealId(null)}
+        />
+      ) : null}
       <div className="flex min-h-screen">
         <aside className="hidden w-72 shrink-0 border-r border-slate-200 bg-white px-5 py-6 shadow-sm lg:block">
           <div className="mb-10 flex items-center gap-3">
@@ -708,8 +773,47 @@ export default function HomePage() {
                                       </div>
                                       <FolderOpen className="h-5 w-5 text-slate-400" />
                                     </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDrawingDealId(deal.id)}
+                                      className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-700"
+                                    >
+                                      Создать чертеж
+                                    </button>
                                     <FileDropzone dealId={deal.id} onFilesSelected={handleDealFilesSelected} />
                                     <FileList files={dealFiles.filter((file) => file.dealId === deal.id)} />
+                                  </section>
+
+                                  <section className="mt-4 rounded-2xl bg-slate-50 p-3">
+                                    <div className="mb-3 flex items-center justify-between gap-2">
+                                      <div>
+                                        <h4 className="text-sm font-bold text-slate-950">Таймлайн сделки</h4>
+                                        <p className="text-xs text-slate-500">
+                                          {dealTimelineEvents.filter((event) => event.dealId === deal.id).length} событий
+                                        </p>
+                                      </div>
+                                      <MessageSquareText className="h-5 w-5 text-slate-400" />
+                                    </div>
+                                    <ol className="space-y-2">
+                                      {dealTimelineEvents.filter((event) => event.dealId === deal.id).length === 0 ? (
+                                        <li className="rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-500">
+                                          Событий по сделке пока нет.
+                                        </li>
+                                      ) : null}
+                                      {dealTimelineEvents
+                                        .filter((event) => event.dealId === deal.id)
+                                        .map((event) => (
+                                          <li key={event.id} className="rounded-2xl border border-slate-200 bg-white p-3 text-sm">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <p className="font-bold text-slate-950">{event.title}</p>
+                                              <time className="shrink-0 text-xs text-slate-500">
+                                                {new Date(event.createdAt).toLocaleString('ru-RU')}
+                                              </time>
+                                            </div>
+                                            <p className="mt-1 leading-5 text-slate-600">{event.description}</p>
+                                          </li>
+                                        ))}
+                                    </ol>
                                   </section>
                                 </article>
                               )}
