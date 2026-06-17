@@ -32,10 +32,15 @@ import {
   MessageCircle,
   MessageSquareText,
   Phone,
+  Pencil,
+  Plus,
+  Save,
   Search,
   Settings,
+  Trash2,
   UserRound,
   UsersRound,
+  X,
   Wrench,
 } from 'lucide-react';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
@@ -59,6 +64,79 @@ type NavigationItem = {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
 };
+
+type ClientFormValues = Pick<Client, 'name' | 'company' | 'phone' | 'email' | 'messengers' | 'address' | 'comments'>;
+
+type ClientFormMode = 'create' | 'edit' | null;
+
+const EMPTY_CLIENT_FORM: ClientFormValues = {
+  name: '',
+  company: '',
+  phone: '',
+  email: '',
+  messengers: [],
+  address: '',
+  comments: '',
+};
+
+function createClientFormValues(client?: Client | null): ClientFormValues {
+  if (!client) {
+    return EMPTY_CLIENT_FORM;
+  }
+
+  return {
+    name: client.name,
+    company: client.company,
+    phone: client.phone,
+    email: client.email,
+    messengers: client.messengers,
+    address: client.address,
+    comments: client.comments,
+  };
+}
+
+function normalizeClientFormValues(values: ClientFormValues): ClientFormValues {
+  return {
+    name: values.name.trim(),
+    company: values.company.trim(),
+    phone: values.phone.trim(),
+    email: values.email.trim(),
+    messengers: values.messengers.map((messenger) => messenger.trim()).filter(Boolean),
+    address: values.address.trim(),
+    comments: values.comments.trim(),
+  };
+}
+
+function validateClientForm(values: ClientFormValues): string | null {
+  const normalizedValues = normalizeClientFormValues(values);
+
+  if (!normalizedValues.name) {
+    return 'Укажите имя клиента.';
+  }
+
+  if (!normalizedValues.company) {
+    return 'Укажите компанию клиента.';
+  }
+
+  if (!normalizedValues.phone && !normalizedValues.email) {
+    return 'Укажите телефон или email клиента.';
+  }
+
+  if (normalizedValues.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedValues.email)) {
+    return 'Укажите корректный email клиента.';
+  }
+
+  return null;
+}
+
+function formatMessengersForInput(messengers: string[]): string {
+  return messengers.join(', ');
+}
+
+function parseMessengersInput(value: string): string[] {
+  return value.split(',').map((messenger) => messenger.trim()).filter(Boolean);
+}
+
 
 const DEAL_STATUSES: DealStatus[] = ['lead', 'specApproval', 'inProgress', 'done'];
 
@@ -301,6 +379,9 @@ export default function HomePage() {
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_EVENTS);
   const [drawingDealId, setDrawingDealId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [clientFormMode, setClientFormMode] = useState<ClientFormMode>(null);
+  const [clientFormValues, setClientFormValues] = useState<ClientFormValues>(EMPTY_CLIENT_FORM);
+  const [clientFormError, setClientFormError] = useState<string | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
 
   const normalizedSearchQuery = searchQuery.toLowerCase().trim();
@@ -620,6 +701,111 @@ export default function HomePage() {
     });
   };
 
+
+  const closeClientForm = useCallback(() => {
+    setClientFormMode(null);
+    setClientFormValues(EMPTY_CLIENT_FORM);
+    setClientFormError(null);
+  }, []);
+
+  const openCreateClientForm = useCallback(() => {
+    setClientFormMode('create');
+    setClientFormValues(EMPTY_CLIENT_FORM);
+    setClientFormError(null);
+  }, []);
+
+  const openEditClientForm = useCallback((client: Client) => {
+    setClientFormMode('edit');
+    setClientFormValues(createClientFormValues(client));
+    setClientFormError(null);
+  }, []);
+
+  const updateClientFormField = useCallback(
+    (field: keyof ClientFormValues, value: string | string[]) => {
+      setClientFormValues((currentValues) => ({
+        ...currentValues,
+        [field]: value,
+      }));
+      setClientFormError(null);
+    },
+    [],
+  );
+
+  const handleClientFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const validationError = validateClientForm(clientFormValues);
+
+    if (validationError) {
+      setClientFormError(validationError);
+      return;
+    }
+
+    const normalizedValues = normalizeClientFormValues(clientFormValues);
+
+    if (clientFormMode === 'create') {
+      const createdClient = await crmRepository.addClient({
+        id: `client-${Date.now()}`,
+        ...normalizedValues,
+        communications: [],
+      });
+
+      setClients((currentClients) => [createdClient, ...currentClients]);
+      setSelectedClientId(createdClient.id);
+      closeClientForm();
+      return;
+    }
+
+    if (clientFormMode === 'edit' && selectedClient) {
+      const updatedClient = await crmRepository.updateClient(selectedClient.id, normalizedValues);
+
+      if (!updatedClient) {
+        setClientFormError('Клиент не найден. Обновите страницу и повторите операцию.');
+        return;
+      }
+
+      setClients((currentClients) => currentClients.map((client) => (
+        client.id === updatedClient.id ? updatedClient : client
+      )));
+      setDeals((currentDeals) => currentDeals.map((deal) => (
+        deal.clientId === updatedClient.id ? { ...deal, client: updatedClient.name } : deal
+      )));
+      setSelectedClientId(updatedClient.id);
+      closeClientForm();
+    }
+  }, [clientFormMode, clientFormValues, closeClientForm, selectedClient]);
+
+  const handleDeleteClient = useCallback(async (client: Client) => {
+    const relatedDeals = deals.filter((deal) => deal.clientId === client.id);
+
+    if (relatedDeals.length > 0) {
+      window.alert(`Нельзя удалить клиента «${client.name}»: с ним связано сделок — ${relatedDeals.length}. Сначала перенесите или удалите связанные сделки.`);
+      return;
+    }
+
+    const isConfirmed = window.confirm(`Удалить клиента «${client.name}»? Это действие нельзя отменить.`);
+
+    if (!isConfirmed) {
+      return;
+    }
+
+    const isDeleted = await crmRepository.deleteClient(client.id);
+
+    if (!isDeleted) {
+      window.alert('Клиент не был удалён. Проверьте наличие связанных сделок или обновите страницу.');
+      return;
+    }
+
+    setClients((currentClients) => {
+      const nextClients = currentClients.filter((currentClient) => currentClient.id !== client.id);
+      setSelectedClientId((currentClientId) => (
+        currentClientId === client.id ? nextClients[0]?.id ?? '' : currentClientId
+      ));
+      return nextClients;
+    });
+    closeClientForm();
+  }, [closeClientForm, deals]);
+
   useEffect(() => {
     if (selectedClient && selectedClient.id !== selectedClientId) {
       setSelectedClientId(selectedClient.id);
@@ -813,7 +999,10 @@ export default function HomePage() {
                     <h2 className="text-xl font-bold text-slate-950">Клиенты</h2>
                     <p className="text-sm text-slate-500">Выберите клиента для просмотра полной карточки</p>
                   </div>
-                  <UsersRound className="h-5 w-5 text-slate-400" />
+                  <Button type="button" size="sm" onClick={openCreateClientForm} className="shrink-0">
+                    <Plus className="h-4 w-4" />
+                    Создать контакт
+                  </Button>
                 </div>
 
                 <div className="space-y-2">
@@ -854,11 +1043,61 @@ export default function HomePage() {
                     <h2 className="mt-2 text-2xl font-bold text-slate-950">{selectedClient.name}</h2>
                     <p className="text-sm text-slate-500">{selectedClient.company}</p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                    <p className="font-semibold text-slate-950">Комментарий менеджера</p>
-                    <p className="mt-1 max-w-xl leading-6">{selectedClient.comments}</p>
+                  <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    <div>
+                      <p className="font-semibold text-slate-950">Комментарий менеджера</p>
+                      <p className="mt-1 max-w-xl leading-6">{selectedClient.comments || 'Комментарий пока не добавлен.'}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => openEditClientForm(selectedClient)}>
+                        <Pencil className="h-4 w-4" />
+                        Редактировать
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleDeleteClient(selectedClient)} className="border-red-200 text-red-700 hover:bg-red-50">
+                        <Trash2 className="h-4 w-4" />
+                        Удалить
+                      </Button>
+                    </div>
                   </div>
                 </div>
+
+                {clientFormMode ? (
+                  <form onSubmit={handleClientFormSubmit} className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-bold text-slate-950">
+                          {clientFormMode === 'create' ? 'Создание контакта' : 'Редактирование контакта'}
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-600">Заполните имя, компанию и телефон или email.</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={closeClientForm} aria-label="Закрыть форму клиента">
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input value={clientFormValues.name} onChange={(event) => updateClientFormField('name', event.target.value)} placeholder="Имя *" />
+                      <Input value={clientFormValues.company} onChange={(event) => updateClientFormField('company', event.target.value)} placeholder="Компания *" />
+                      <Input value={clientFormValues.phone} onChange={(event) => updateClientFormField('phone', event.target.value)} placeholder="Телефон" />
+                      <Input value={clientFormValues.email} onChange={(event) => updateClientFormField('email', event.target.value)} placeholder="Email" />
+                      <Input value={formatMessengersForInput(clientFormValues.messengers)} onChange={(event) => updateClientFormField('messengers', parseMessengersInput(event.target.value))} placeholder="Мессенджеры через запятую" />
+                      <Input value={clientFormValues.address} onChange={(event) => updateClientFormField('address', event.target.value)} placeholder="Адрес" />
+                      <textarea
+                        value={clientFormValues.comments}
+                        onChange={(event) => updateClientFormField('comments', event.target.value)}
+                        placeholder="Комментарии"
+                        className="min-h-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 md:col-span-2"
+                      />
+                    </div>
+                    {clientFormError ? <p className="mt-3 text-sm font-semibold text-red-700">{clientFormError}</p> : null}
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button type="submit">
+                        <Save className="h-4 w-4" />
+                        {clientFormMode === 'create' ? 'Создать контакт' : 'Сохранить изменения'}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={closeClientForm}>Отмена</Button>
+                    </div>
+                  </form>
+                ) : null}
 
                 <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-2xl bg-slate-50 p-3 text-sm">
