@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DragDropContext,
   Draggable,
@@ -26,41 +26,10 @@ import {
   UsersRound,
   Wrench,
 } from 'lucide-react';
-
-type DealStatus = 'lead' | 'specApproval' | 'inProgress' | 'done';
-
-type Deal = {
-  id: string;
-  title: string;
-  clientId: string;
-  client: string;
-  createdAt: string;
-  status: DealStatus;
-  owner: string;
-  dueDate: string;
-  price: string;
-  notes: string;
-};
-
-type Communication = {
-  id: string;
-  date: string;
-  channel: string;
-  summary: string;
-  manager: string;
-};
-
-type Client = {
-  id: string;
-  name: string;
-  company: string;
-  phone: string;
-  email: string;
-  messengers: string[];
-  address: string;
-  comments: string;
-  communications: Communication[];
-};
+import { FileDropzone } from '@/components/files/FileDropzone';
+import { FileList } from '@/components/files/FileList';
+import { getNextFileVersion } from '@/components/files/fileUtils';
+import type { Client, Deal, DealFile, DealStatus } from '@/types/crm';
 
 type NavigationItem = {
   title: string;
@@ -282,6 +251,30 @@ const INITIAL_DEALS: Deal[] = [
   },
 ];
 
+
+const INITIAL_DEAL_FILES: DealFile[] = [
+  {
+    id: 'file-001',
+    dealId: 'deal-001',
+    name: 'Техническое-задание.pdf',
+    type: 'application/pdf',
+    size: 248000,
+    version: 1,
+    uploadedAt: '2026-06-06T10:20:00.000Z',
+    previewUrl: '/file.svg',
+  },
+  {
+    id: 'file-002',
+    dealId: 'deal-003',
+    name: 'План-переговорной.dwg',
+    type: 'application/acad',
+    size: 1824000,
+    version: 1,
+    uploadedAt: '2026-06-10T13:45:00.000Z',
+    previewUrl: '/file.svg',
+  },
+];
+
 const statusStyles: Record<DealStatus, string> = {
   lead: 'border-slate-200 bg-slate-100 text-slate-700',
   specApproval: 'border-orange-200 bg-orange-50 text-orange-700',
@@ -336,6 +329,8 @@ function moveDealBetweenColumns(
 export default function HomePage() {
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
+  const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
+  const objectUrlsRef = useRef<string[]>([]);
 
   const columns = useMemo(() => groupDealsByStatus(deals), [deals]);
   const allDeals = deals;
@@ -355,6 +350,35 @@ export default function HomePage() {
   }, [allDeals]);
 
   const totalDeals = useMemo(() => allDeals.length, [allDeals]);
+
+  const handleDealFilesSelected = useCallback((dealId: string, files: File[]) => {
+    setDealFiles((currentFiles) => {
+      const stagedFiles: DealFile[] = [];
+
+      files.forEach((file, index) => {
+        const previewUrl = URL.createObjectURL(file);
+        objectUrlsRef.current.push(previewUrl);
+        stagedFiles.push({
+          id: `file-${dealId}-${Date.now()}-${index}`,
+          dealId,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          version: getNextFileVersion([...currentFiles, ...stagedFiles], dealId, file.name),
+          uploadedAt: new Date().toISOString(),
+          previewUrl,
+        });
+      });
+
+      return [...stagedFiles, ...currentFiles];
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   const handleDragEnd = (result: DropResult) => {
     const { destination, source } = result;
@@ -673,6 +697,20 @@ export default function HomePage() {
                                     </p>
                                     <p>{deal.notes}</p>
                                   </div>
+
+                                  <section className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div>
+                                        <h4 className="text-sm font-bold text-slate-950">Файлы сделки</h4>
+                                        <p className="text-xs text-slate-500">
+                                          {dealFiles.filter((file) => file.dealId === deal.id).length} вложений
+                                        </p>
+                                      </div>
+                                      <FolderOpen className="h-5 w-5 text-slate-400" />
+                                    </div>
+                                    <FileDropzone dealId={deal.id} onFilesSelected={handleDealFilesSelected} />
+                                    <FileList files={dealFiles.filter((file) => file.dealId === deal.id)} />
+                                  </section>
                                 </article>
                               )}
                             </Draggable>
