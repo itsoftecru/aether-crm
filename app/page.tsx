@@ -36,7 +36,10 @@ import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
 import type { ActivityEvent, Client, Deal, DealFile, DealStatus, DocumentKind, DrawingElement, Reminder } from '@/types/crm';
 
+type ActiveSection = 'home' | 'clients' | 'deals' | 'drawings' | 'files' | 'settings';
+
 type NavigationItem = {
+  id: ActiveSection;
   title: string;
   icon: React.ComponentType<{ className?: string }>;
 };
@@ -51,12 +54,12 @@ const STATUS_TITLES: Record<DealStatus, string> = {
 };
 
 const NAVIGATION_ITEMS: NavigationItem[] = [
-  { title: 'Главная', icon: Home },
-  { title: 'Клиенты', icon: UsersRound },
-  { title: 'Сделки', icon: ClipboardList },
-  { title: 'Чертежи', icon: FileText },
-  { title: 'Файлы', icon: FolderOpen },
-  { title: 'Настройки', icon: Settings },
+  { id: 'home', title: 'Главная', icon: Home },
+  { id: 'clients', title: 'Клиенты', icon: UsersRound },
+  { id: 'deals', title: 'Сделки', icon: ClipboardList },
+  { id: 'drawings', title: 'Чертежи', icon: FileText },
+  { id: 'files', title: 'Файлы', icon: FolderOpen },
+  { id: 'settings', title: 'Настройки', icon: Settings },
 ];
 
 
@@ -468,6 +471,7 @@ function moveDealBetweenColumns(
 }
 
 export default function HomePage() {
+  const [activeSection, setActiveSection] = useState<ActiveSection>('home');
   const [selectedClientId, setSelectedClientId] = useState(INITIAL_CLIENTS[0].id);
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
@@ -506,6 +510,7 @@ export default function HomePage() {
   const allDeals = filteredDeals;
   const hasSearchQuery = normalizedSearchQuery.length > 0;
   const hasSearchResults = filteredClients.length > 0 || filteredDeals.length > 0;
+  const activeNavigationItem = NAVIGATION_ITEMS.find((item) => item.id === activeSection) ?? NAVIGATION_ITEMS[0];
 
   const selectedClient = useMemo(() => {
     return filteredClients.find((client) => client.id === selectedClientId) ?? filteredClients[0] ?? null;
@@ -541,6 +546,8 @@ export default function HomePage() {
   const drawingDeal = useMemo(() => {
     return drawingDealId ? deals.find((deal) => deal.id === drawingDealId) ?? null : null;
   }, [deals, drawingDealId]);
+
+  const drawingFiles = useMemo(() => dealFiles.filter((file) => file.drawingData), [dealFiles]);
 
   const handleDealFilesSelected = useCallback((dealId: string, files: File[]) => {
     setDealFiles((currentFiles) => {
@@ -765,13 +772,14 @@ export default function HomePage() {
           <nav className="space-y-2" aria-label="Основная навигация">
             {NAVIGATION_ITEMS.map((item) => {
               const Icon = item.icon;
-              const isActive = item.title === 'Сделки';
+              const isActive = item.id === activeSection;
 
               return (
-                <a
-                  key={item.title}
-                  href="#"
-                  className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveSection(item.id)}
+                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
                     isActive
                       ? 'bg-slate-950 text-white shadow-lg shadow-slate-900/15'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
@@ -779,7 +787,7 @@ export default function HomePage() {
                 >
                   <Icon className="h-5 w-5" />
                   {item.title}
-                </a>
+                </button>
               );
             })}
           </nav>
@@ -793,11 +801,10 @@ export default function HomePage() {
                   Рабочая область
                 </p>
                 <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
-                  Kanban-доска сделок
+                  {activeNavigationItem.title}
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                  Перемещайте карточки между этапами, чтобы команда видела актуальное состояние заказов,
-                  сроков, стоимости и ответственных сотрудников.
+                  Переключайтесь между разделами CRM: сводкой, клиентами, сделками, чертежами, файлами и настройками.
                 </p>
               </div>
 
@@ -886,7 +893,34 @@ export default function HomePage() {
             ) : null}
           </section>
 
-          {hasSearchResults ? (
+          {activeSection === 'home' ? (
+          <section className="border-b border-slate-200 bg-slate-50 px-5 py-6 sm:px-8">
+            <div className="grid gap-5 lg:grid-cols-4">
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Сделки</p>
+                <p className="mt-3 text-4xl font-bold text-slate-950">{totalDeals}</p>
+                <p className="mt-2 text-sm text-slate-500">Активный пайплайн по текущему поиску.</p>
+              </div>
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Клиенты</p>
+                <p className="mt-3 text-4xl font-bold text-slate-950">{filteredClients.length}</p>
+                <p className="mt-2 text-sm text-slate-500">Карточки клиентов в базе CRM.</p>
+              </div>
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Портфель</p>
+                <p className="mt-3 text-4xl font-bold text-slate-950">{totalValue} ₽</p>
+                <p className="mt-2 text-sm text-slate-500">Суммарная стоимость сделок.</p>
+              </div>
+              <div className="rounded-3xl border border-red-100 bg-red-50 p-5 shadow-sm">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-red-700">Просрочки</p>
+                <p className="mt-3 text-4xl font-bold text-slate-950">{overdueDeals.length}</p>
+                <p className="mt-2 text-sm text-slate-600">Сделки не в статусе «Выполнено» с истекшим сроком.</p>
+              </div>
+            </div>
+          </section>
+          ) : null}
+
+          {activeSection === 'clients' ? (hasSearchResults ? (
           <section className="border-b border-slate-200 bg-slate-50 px-5 py-6 sm:px-8">
             <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
               <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1021,8 +1055,9 @@ export default function HomePage() {
               </p>
             </div>
           </section>
-          )}
+          )) : null}
 
+          {activeSection === 'deals' ? (
           <div className="flex-1 overflow-x-auto px-5 py-6 sm:px-8">
             <DragDropContext onDragEnd={handleDragEnd}>
               <div className="grid min-w-[1120px] grid-cols-4 gap-5">
@@ -1063,7 +1098,10 @@ export default function HomePage() {
                                       <h3 className="font-bold leading-6 text-slate-950">{deal.title}</h3>
                                       <button
                                         type="button"
-                                        onClick={() => setSelectedClientId(deal.clientId)}
+                                        onClick={() => {
+                                          setSelectedClientId(deal.clientId);
+                                          setActiveSection('clients');
+                                        }}
                                         className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-950"
                                       >
                                         <UserRound className="h-4 w-4" />
@@ -1176,6 +1214,59 @@ export default function HomePage() {
               </div>
             </DragDropContext>
           </div>
+          ) : null}
+
+          {activeSection === 'drawings' ? (
+          <section className="flex-1 px-5 py-6 sm:px-8">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-2xl font-bold text-slate-950">Созданные чертежи</h2>
+              <p className="mt-2 text-sm text-slate-500">Файлы сделок, созданные во встроенном редакторе чертежей.</p>
+              {drawingFiles.length > 0 ? (
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  {drawingFiles.map((file) => {
+                    const deal = deals.find((currentDeal) => currentDeal.id === file.dealId);
+                    return (
+                      <article key={file.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="font-bold text-slate-950">{file.name}</p>
+                        <p className="mt-1 text-sm text-slate-500">Сделка: {deal?.title ?? file.dealId}</p>
+                        <p className="mt-1 text-sm text-slate-500">Версия {file.version} · {formatDateTime(file.uploadedAt)}</p>
+                        <p className="mt-2 text-sm text-slate-600">Объектов на чертеже: {file.drawingData?.elements.length ?? 0}</p>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+                  Чертежи пока не созданы. Откройте раздел «Сделки» и нажмите «Создать чертеж» в карточке сделки.
+                </div>
+              )}
+            </div>
+          </section>
+          ) : null}
+
+          {activeSection === 'files' ? (
+          <section className="flex-1 px-5 py-6 sm:px-8">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-2xl font-bold text-slate-950">Все файлы сделок</h2>
+              <p className="mt-2 text-sm text-slate-500">Единый список загруженных файлов, документов и чертежей.</p>
+              <div className="mt-5">
+                <FileList files={dealFiles} />
+              </div>
+            </div>
+          </section>
+          ) : null}
+
+          {activeSection === 'settings' ? (
+          <section className="flex-1 px-5 py-6 sm:px-8">
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+              <Settings className="mx-auto h-10 w-10 text-slate-400" />
+              <h2 className="mt-4 text-2xl font-bold text-slate-950">Настройки появятся позже</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+                MVP-раздел для будущих настроек команды, статусов, шаблонов документов и прав доступа.
+              </p>
+            </div>
+          </section>
+          ) : null}
         </section>
       </div>
     </main>
