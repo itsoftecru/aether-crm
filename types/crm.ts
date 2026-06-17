@@ -9,6 +9,36 @@ export type DealFile = {
   version: number;
   uploadedAt: string;
   previewUrl: string;
+  drawingData?: DrawingAttachment;
+};
+
+export type DrawingTool = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'text';
+
+export type DrawingPoint = {
+  x: number;
+  y: number;
+};
+
+export type DrawingElement = {
+  id: string;
+  tool: Exclude<DrawingTool, 'select'>;
+  start: DrawingPoint;
+  end: DrawingPoint;
+  text?: string;
+};
+
+export type DrawingAttachment = {
+  format: 'svg';
+  elements: DrawingElement[];
+  svg: string;
+};
+
+export type DealTimelineEvent = {
+  id: string;
+  dealId: string;
+  title: string;
+  createdAt: string;
+  description: string;
 };
 
 export type Deal = {
