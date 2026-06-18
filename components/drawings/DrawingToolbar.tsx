@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComponentType } from 'react';
-import { Circle, DraftingCompass, FileDown, Grid2X2, Minus, MousePointer2, RectangleHorizontal, Save, Shapes, Type } from 'lucide-react';
+import { Circle, DraftingCompass, FileDown, Grid2X2, Minus, MousePointer2, RectangleHorizontal, RotateCcwSquare, Save, Type } from 'lucide-react';
 import type { DrawingTool } from '@/types/crm';
 
 export type DrawingToolbarProps = {
@@ -20,8 +20,8 @@ export type DrawingToolbarProps = {
 
 const TOOL_BUTTONS: Array<{ tool: DrawingTool; title: string; icon: ComponentType<{ className?: string }> }> = [
   { tool: 'select', title: 'Выбор', icon: MousePointer2 },
-  { tool: 'profile', title: 'Профиль', icon: Shapes },
   { tool: 'line', title: 'Линия', icon: Minus },
+  { tool: 'hem', title: 'Завальцовка 15 мм', icon: RotateCcwSquare },
   { tool: 'rectangle', title: 'Прямоугольник', icon: RectangleHorizontal },
   { tool: 'circle', title: 'Окружность', icon: Circle },
   { tool: 'dimension', title: 'Размер', icon: DraftingCompass },
