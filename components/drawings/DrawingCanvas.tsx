@@ -99,11 +99,23 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
     stroke,
     strokeWidth: element.tool === 'dimension' ? 1.6 : isSelected ? 3 : 2,
     fill: element.tool === 'rectangle' || element.tool === 'circle' ? 'rgba(15, 23, 42, 0.04)' : 'none',
-    strokeDasharray: isPreview ? '7 5' : element.tool === 'dimension' ? '4 4' : undefined,
+    strokeDasharray: isPreview ? '7 5' : element.tool === 'dimension' ? '4 4' : isHemLine ? '8 4' : undefined,
   };
 
   if (element.tool === 'line') {
-    return <line key={element.id} x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />;
+    const labelX = (element.start.x + element.end.x) / 2;
+    const labelY = (element.start.y + element.end.y) / 2 - 8;
+    const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
+    const label = isHemLine ? `Завальцовка ${element.hemSizeMm ?? length} мм` : `${length} мм`;
+    return (
+      <g key={element.id}>
+        <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
+        {isHemLine ? <line x1={element.start.x} y1={element.start.y + 5} x2={element.end.x} y2={element.end.y + 5} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 4" /> : null}
+        <text x={labelX} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+          {element.text || label}
+        </text>
+      </g>
+    );
   }
 
   if (element.tool === 'rectangle') {

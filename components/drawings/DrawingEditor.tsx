@@ -16,6 +16,16 @@ type DrawingEditorProps = {
   onClose: () => void;
 };
 
+type ProductSpecDraft = {
+  name: string;
+  formula: string;
+  lengthMm: number;
+  quantity: number;
+  material: string;
+  thicknessMm: number;
+  color: string;
+};
+
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 620;
 const GRID_SIZE = 20;
