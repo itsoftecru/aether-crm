@@ -105,14 +105,20 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
 
   if (element.tool === 'line' || element.tool === 'hem') {
     const labelX = (element.start.x + element.end.x) / 2;
-    const labelY = (element.start.y + element.end.y) / 2 - 8;
+    const dx = element.end.x - element.start.x;
+    const dy = element.end.y - element.start.y;
+    const segmentLength = Math.max(1, Math.hypot(dx, dy));
+    const labelXOffset = (-dy / segmentLength) * 18;
+    const labelYOffset = (dx / segmentLength) * 18;
+    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
     const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
     const label = isHemLine ? `Завальцовка ${element.hemSizeMm ?? length} мм` : `${length} мм`;
     return (
       <g key={element.id}>
         <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
         {isHemLine ? <line x1={element.start.x} y1={element.start.y + 5} x2={element.end.x} y2={element.end.y + 5} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 4" /> : null}
-        <text x={labelX} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+        <rect x={labelX + labelXOffset - 34} y={labelY - 17} width={68} height={22} rx={8} fill="white" stroke="#cbd5e1" />
+        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
           {element.text || label}
         </text>
       </g>
@@ -134,9 +140,28 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
     return <circle key={element.id} cx={element.start.x} cy={element.start.y} r={radius} {...commonProps} />;
   }
 
+  if (element.tool === 'angleDimension') {
+    const labelX = (element.start.x + element.end.x) / 2;
+    const labelY = (element.start.y + element.end.y) / 2 - 18;
+    return (
+      <g key={element.id}>
+        <path d={`M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}`} stroke={stroke} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
+        <rect x={labelX - 24} y={labelY - 16} width={48} height={22} rx={8} fill="white" stroke="#cbd5e1" />
+        <text x={labelX} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+          {element.text || `${element.angleDeg ?? 0}°`}
+        </text>
+      </g>
+    );
+  }
+
   if (element.tool === 'dimension') {
     const labelX = (element.start.x + element.end.x) / 2;
-    const labelY = (element.start.y + element.end.y) / 2 - 8;
+    const dx = element.end.x - element.start.x;
+    const dy = element.end.y - element.start.y;
+    const segmentLength = Math.max(1, Math.hypot(dx, dy));
+    const labelXOffset = (-dy / segmentLength) * 18;
+    const labelYOffset = (dx / segmentLength) * 18;
+    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
     const length = Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
 
     return (
@@ -144,7 +169,8 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
         <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
         <circle cx={element.start.x} cy={element.start.y} r={4} fill={stroke} />
         <circle cx={element.end.x} cy={element.end.y} r={4} fill={stroke} />
-        <text x={labelX} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+        <rect x={labelX + labelXOffset - 34} y={labelY - 17} width={68} height={22} rx={8} fill="white" stroke="#cbd5e1" />
+        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
           {element.text || `${length} мм`}
         </text>
       </g>

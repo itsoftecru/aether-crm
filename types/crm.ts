@@ -100,7 +100,7 @@ export type DealFile = {
   drawingData?: DrawingAttachment;
 };
 
-export type DrawingTool = 'select' | 'line' | 'hem' | 'rectangle' | 'circle' | 'dimension' | 'text' | 'profile';
+export type DrawingTool = 'select' | 'line' | 'hem' | 'rectangle' | 'circle' | 'dimension' | 'angleDimension' | 'text' | 'profile';
 export type BendType = 'straight' | 'bend' | 'hem' | 'lock' | 'dripEdge';
 
 export type DrawingPoint = {
@@ -117,6 +117,7 @@ export type DrawingElement = {
   profile?: ProductProfile;
   lengthMm?: number;
   hemSizeMm?: number;
+  angleDeg?: number;
 };
 
 export type ProfileSegment = {
@@ -145,6 +146,8 @@ export type DrawingProduct = ProductProfile & {
   id: string;
   profileElementId: string;
   profileFormula: string;
+  unfoldingMm?: number;
+  areaM2?: number;
 };
 
 export type DrawingAttachment = {
