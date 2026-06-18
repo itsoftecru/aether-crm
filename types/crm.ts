@@ -115,11 +115,6 @@ export type DrawingElement = {
   end: DrawingPoint;
   text?: string;
   profile?: ProductProfile;
-  lengthMm?: number;
-  angleDeg?: number;
-  bendType?: BendType;
-  hemSizeMm?: number;
-  hemDirection?: 'inside' | 'outside';
 };
 
 export type ProfileSegment = {

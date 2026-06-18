@@ -94,8 +94,7 @@ function renderProfile(element: DrawingElement, isPreview: boolean, isSelected: 
 export function renderElement(element: DrawingElement, isPreview = false, isSelected = false) {
   if (element.tool === 'profile') return renderProfile(element, isPreview, isSelected);
 
-  const isHemLine = element.tool === 'line' && element.bendType === 'hem';
-  const stroke = isPreview ? '#2563eb' : isSelected ? '#ea580c' : isHemLine ? '#dc2626' : '#0f172a';
+  const stroke = isPreview ? '#2563eb' : isSelected ? '#ea580c' : '#0f172a';
   const commonProps = {
     stroke,
     strokeWidth: element.tool === 'dimension' ? 1.6 : isSelected ? 3 : 2,

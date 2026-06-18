@@ -269,11 +269,6 @@ function validateDrawingData(value: unknown): DealFile['drawingData'] {
         end: validateDrawingPoint(elementRecord.end, 'Конечная точка элемента чертежа'),
         text: optionalString(elementRecord, 'text', 'Элемент чертежа'),
         profile: elementRecord.profile === undefined ? undefined : validateProductProfile(elementRecord.profile),
-        lengthMm: optionalNonNegativeNumber(elementRecord, 'lengthMm', 'Элемент чертежа'),
-        angleDeg: typeof elementRecord.angleDeg === 'number' && Number.isFinite(elementRecord.angleDeg) ? elementRecord.angleDeg : undefined,
-        bendType: elementRecord.bendType === undefined ? undefined : requireEnum(elementRecord.bendType, BEND_TYPES, 'bendType', 'Элемент чертежа'),
-        hemSizeMm: optionalNonNegativeNumber(elementRecord, 'hemSizeMm', 'Элемент чертежа'),
-        hemDirection: elementRecord.hemDirection === undefined ? undefined : requireEnum(elementRecord.hemDirection, ['inside', 'outside'] as const, 'hemDirection', 'Элемент чертежа'),
       };
     }),
     svg: requireString(record, 'svg', 'Чертёж файла сделки'),
