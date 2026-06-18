@@ -1,0 +1,7 @@
+'use client';
+import { Plus, UserRound } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import type { Client } from '@/types/crm';
+export function ClientList({ clients, selectedClientId, onSelectClient, onCreateClient }: { clients: Client[]; selectedClientId: string; onSelectClient: (id: string) => void; onCreateClient: () => void }) {
+  return <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-xl font-bold text-slate-950">Клиенты</h2><p className="text-sm text-slate-500">Выберите клиента для просмотра полной карточки</p></div><Button type="button" size="sm" onClick={onCreateClient} className="shrink-0"><Plus className="h-4 w-4" />Новый</Button></div><div className="space-y-2">{clients.map((client) => <button key={client.id} type="button" onClick={() => onSelectClient(client.id)} className={`w-full rounded-2xl border p-3 text-left transition ${client.id === selectedClientId ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-slate-50 hover:bg-white'}`}><div className="flex items-start gap-3"><UserRound className="mt-1 h-4 w-4 text-slate-500" /><div><p className="font-bold text-slate-950">{client.name}</p><p className="text-sm text-slate-500">{client.company}</p><p className="mt-1 text-xs text-slate-500">{client.phone || client.email}</p></div></div></button>)}</div></div>;
+}
