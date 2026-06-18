@@ -2,9 +2,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { INITIAL_ACTIVITY_EVENTS, INITIAL_CLIENTS, INITIAL_DEAL_FILES, INITIAL_DEALS, INITIAL_REMINDERS, INITIAL_SETTINGS } from '@/lib/crmRepository';
-import type { ActivityEvent, Client, CrmSettings, Deal, DealFile, DealStatus, Reminder } from '@/types/crm';
-
-type StoredDealFile = DealFile & { storageKey?: string | null };
+import { LocalFileStorage } from '@/lib/storage/localFileStorage';
+import { S3FileStorage } from '@/lib/storage/s3FileStorage';
+import type { FileStorage, StoredDealFile } from '@/lib/storage/fileStorage';
+import type { ActivityEvent, Client, CrmSettings, Deal, Reminder } from '@/types/crm';
 
 type CrmSnapshot = {
   clients: Client[];
@@ -43,10 +44,12 @@ function createInitialSnapshot(): CrmSnapshot {
 
 export class SqliteCrmStore {
   private readonly database: DatabaseSync;
+  private readonly fileStorage: FileStorage;
 
-  constructor(databasePath = DATABASE_PATH) {
+  constructor(databasePath = DATABASE_PATH, fileStorage: FileStorage = createConfiguredFileStorage()) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.database = new DatabaseSync(databasePath);
+    this.fileStorage = fileStorage;
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
     this.migrateSchema();
     this.seedInitialData();
@@ -60,7 +63,7 @@ export class SqliteCrmStore {
     return {
       clients: this.allPayloads<Client>('clients', 'name ASC'),
       deals: this.allPayloads<Deal>('deals', 'created_at DESC, id ASC'),
-      dealFiles: this.allPayloads<StoredDealFile>('deal_files', 'uploaded_at DESC, id ASC'),
+      dealFiles: this.allPayloads<StoredDealFile>('deal_files', 'uploaded_at DESC, id ASC').map((file) => this.withSafePreviewUrl(file)),
       activityEvents: this.allPayloads<ActivityEvent>('activity_events', 'timestamp DESC, id ASC'),
       reminders: this.allPayloads<Reminder>('reminders', 'due_at ASC, id ASC'),
       settings: this.getSettings(),
@@ -165,8 +168,8 @@ export class SqliteCrmStore {
   }
 
   upsertDealFile(file: StoredDealFile): StoredDealFile {
-    this.database.prepare(`INSERT OR REPLACE INTO deal_files (id, deal_id, name, mime_type, size_bytes, version, uploaded_at, payload, content, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(file.id, file.dealId, file.name, file.type, file.size, file.version, file.uploadedAt, json(file), file.previewUrl ?? null, nowIso());
+    this.database.prepare(`INSERT OR REPLACE INTO deal_files (id, deal_id, name, mime_type, size_bytes, version, uploaded_at, storage_key, preview_url, payload, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(file.id, file.dealId, file.name, file.type, file.size, file.version, file.uploadedAt, file.storageKey ?? null, file.previewUrl ?? '/file.svg', json({ ...file, previewUrl: file.previewUrl ?? '/file.svg' }), nowIso());
     return file;
   }
 
@@ -193,6 +196,19 @@ export class SqliteCrmStore {
     return result.changes > 0;
   }
 
+
+  getFileRecord(fileId: string): StoredDealFile | null {
+    return this.getPayload<StoredDealFile>('deal_files', fileId);
+  }
+
+  getFileStorage(): FileStorage {
+    return this.fileStorage;
+  }
+
+  private withSafePreviewUrl(file: StoredDealFile): StoredDealFile {
+    return { ...file, previewUrl: file.storageKey ? `/api/crm/files?id=${encodeURIComponent(file.id)}&disposition=preview` : file.previewUrl };
+  }
+
   private migrateSchema(): void {
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
@@ -200,7 +216,7 @@ export class SqliteCrmStore {
       CREATE TABLE IF NOT EXISTS deals (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL, owner TEXT NOT NULL, created_at TEXT NOT NULL, due_date TEXT NOT NULL, revenue_amount REAL NOT NULL, currency TEXT NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS contacts (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS communications (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, channel TEXT NOT NULL, communication_date TEXT NOT NULL, summary TEXT NOT NULL, manager TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE);
-      CREATE TABLE IF NOT EXISTS deal_files (id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, version INTEGER NOT NULL, uploaded_at TEXT NOT NULL, payload TEXT NOT NULL, content TEXT, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS deal_files (id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, version INTEGER NOT NULL, uploaded_at TEXT NOT NULL, storage_key TEXT, preview_url TEXT, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS drawings (id TEXT PRIMARY KEY, deal_file_id TEXT NOT NULL, format TEXT NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(deal_file_id) REFERENCES deal_files(id) ON DELETE CASCADE);
       CREATE TABLE IF NOT EXISTS reminders (id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, client_id TEXT NOT NULL, manager_id TEXT NOT NULL, title TEXT NOT NULL, due_at TEXT NOT NULL, is_done INTEGER NOT NULL, priority TEXT NOT NULL, reminder_type TEXT NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS financial_rows (id TEXT PRIMARY KEY, deal_id TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, amount REAL NOT NULL, payload TEXT NOT NULL, FOREIGN KEY(deal_id) REFERENCES deals(id) ON DELETE CASCADE);
@@ -208,6 +224,15 @@ export class SqliteCrmStore {
       CREATE TABLE IF NOT EXISTS crm_settings (id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
       INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (${SCHEMA_VERSION}, '${nowIso()}');
     `);
+    this.addColumnIfMissing('deal_files', 'storage_key', 'TEXT');
+    this.addColumnIfMissing('deal_files', 'preview_url', 'TEXT');
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    const columns = this.database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!columns.some((currentColumn) => currentColumn.name === column)) {
+      this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+    }
   }
 
   private seedInitialData(): void {
@@ -224,6 +249,10 @@ export class SqliteCrmStore {
     const row = this.database.prepare(`SELECT payload FROM ${table} WHERE id = ?`).get(id) as { payload: string } | undefined;
     return row ? parseJson<T>(row.payload) : null;
   }
+}
+
+function createConfiguredFileStorage(): FileStorage {
+  return process.env.CRM_FILE_STORAGE === 's3' ? new S3FileStorage() : new LocalFileStorage();
 }
 
 let singleton: SqliteCrmStore | null = null;

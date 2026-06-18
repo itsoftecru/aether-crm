@@ -1,4 +1,5 @@
 import { createEmptyDealFinancials } from '@/lib/dealFinancials';
+import type { FileStorage, StoredDealFile, StoredFileContent } from '@/lib/storage/fileStorage';
 import type { ActivityEvent, Client, CrmSettings, Deal, DealFile, DealStatus, Reminder } from '@/types/crm';
 
 
@@ -334,7 +335,7 @@ export const INITIAL_ACTIVITY_EVENTS: ActivityEvent[] = [
 
 
 
-export type StoredFileContent = Blob | string | null | undefined;
+
 
 export type AddDealFileInput = Omit<DealFile, 'previewUrl'> & {
   previewUrl?: string;
@@ -365,15 +366,11 @@ export interface CrmRepository {
   replaceDeals(deals: Deal[]): Promise<Deal[]>;
 }
 
-export interface FileStorage {
-  save(fileId: string, content: StoredFileContent): Promise<string | null>;
-  getPreviewUrl(fileId: string): Promise<string | null>;
-}
 
 type CrmState = {
   clients: Client[];
   deals: Deal[];
-  dealFiles: Array<DealFile & { storageKey?: string | null }>;
+  dealFiles: StoredDealFile[];
   activityEvents: ActivityEvent[];
   reminders: Reminder[];
   settings: CrmSettings;
@@ -493,17 +490,21 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 class LocalStorageFileStorage implements FileStorage {
-  async save(fileId: string, content: StoredFileContent): Promise<string | null> {
-    if (!content || !isBrowserStorageAvailable()) return null;
-    const dataUrl = typeof content === 'string' ? content : await blobToDataUrl(content);
-    const storageKey = `${FILE_CONTENT_KEY_PREFIX}${fileId}`;
+  async save(input: { fileId: string; content: StoredFileContent }): Promise<{ storageKey: string | null; previewUrl: string | null }> {
+    if (!input.content || !isBrowserStorageAvailable()) return { storageKey: null, previewUrl: null };
+    const dataUrl = typeof input.content === 'string' ? input.content : await blobToDataUrl(input.content as Blob);
+    const storageKey = `${FILE_CONTENT_KEY_PREFIX}${input.fileId}`;
     window.localStorage.setItem(storageKey, dataUrl);
-    return storageKey;
+    return { storageKey, previewUrl: dataUrl };
   }
 
-  async getPreviewUrl(fileId: string): Promise<string | null> {
-    if (!isBrowserStorageAvailable()) return null;
-    return window.localStorage.getItem(`${FILE_CONTENT_KEY_PREFIX}${fileId}`);
+  async getPreviewUrl(storageKey: string | null | undefined): Promise<string | null> {
+    if (!storageKey || !isBrowserStorageAvailable()) return null;
+    return window.localStorage.getItem(storageKey);
+  }
+
+  async getDownloadUrl(storageKey: string | null | undefined): Promise<string | null> {
+    return this.getPreviewUrl(storageKey);
   }
 }
 
@@ -532,10 +533,13 @@ export class LocalStorageCrmRepository implements CrmRepository {
 
   async getDealFiles(dealId?: string): Promise<DealFile[]> {
     const files = this.readState().dealFiles.filter((file) => !dealId || file.dealId === dealId);
-    return Promise.all(files.map(async ({ storageKey: _storageKey, ...file }) => ({
-      ...file,
-      previewUrl: (await this.fileStorage.getPreviewUrl(file.id)) ?? file.previewUrl,
-    })));
+    return Promise.all(files.map(async (file) => {
+      const { storageKey, ...metadata } = file;
+      return {
+        ...metadata,
+        previewUrl: (await this.fileStorage.getPreviewUrl(storageKey, file.id)) ?? file.previewUrl,
+      };
+    }));
   }
 
   async getActivityEvents(): Promise<ActivityEvent[]> {
@@ -691,7 +695,8 @@ export class LocalStorageCrmRepository implements CrmRepository {
 
   async addFile(file: AddDealFileInput): Promise<DealFile> {
     const state = this.readState();
-    const storageKey = await this.fileStorage.save(file.id, file.content);
+    const storageResult = await this.fileStorage.save({ fileId: file.id, dealId: file.dealId, fileName: file.name, mimeType: file.type, content: file.content });
+    const storageKey = storageResult.storageKey;
     const { content: _content, ...metadata } = file;
     const persistedFile = {
       ...metadata,
@@ -699,7 +704,7 @@ export class LocalStorageCrmRepository implements CrmRepository {
     };
     const savedFile = {
       ...persistedFile,
-      previewUrl: storageKey ? (await this.fileStorage.getPreviewUrl(file.id)) ?? persistedFile.previewUrl : persistedFile.previewUrl,
+      previewUrl: storageKey ? (await this.fileStorage.getPreviewUrl(storageKey, file.id)) ?? persistedFile.previewUrl : persistedFile.previewUrl,
     };
 
     state.dealFiles = [{ ...persistedFile, storageKey }, ...state.dealFiles];

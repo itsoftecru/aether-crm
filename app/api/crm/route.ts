@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSqliteCrmStore } from '@/lib/server/sqliteCrmStore';
+import type { StoredFileContent } from '@/lib/storage/fileStorage';
 import type { ActivityEvent, Client, CrmSettings, Deal, DealCostCategory, DealFile, DealStatus, Reminder } from '@/types/crm';
 
 export const runtime = 'nodejs';
@@ -331,8 +332,30 @@ function requireRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const fileId = request.nextUrl.searchParams.get('id');
+    if (fileId) {
+      const disposition = request.nextUrl.searchParams.get('disposition') === 'download' ? 'attachment' : 'inline';
+      const store = getSqliteCrmStore();
+      const file = store.getFileRecord(fileId);
+      if (!file?.storageKey) return jsonResponse({ error: 'Файл не найден в файловом хранилище.' }, 404);
+      const storage = store.getFileStorage();
+      const externalUrl = disposition === 'attachment'
+        ? await storage.getDownloadUrl(file.storageKey, file.id)
+        : await storage.getPreviewUrl(file.storageKey, file.id);
+      if (externalUrl && !externalUrl.startsWith('/api/crm/files')) return NextResponse.redirect(externalUrl);
+      if (!storage.read) return jsonResponse({ error: 'Адаптер файлового хранилища не поддерживает прямое чтение.' }, 501);
+      const object = await storage.read(file.storageKey);
+      return new NextResponse(new Uint8Array(object.body), {
+        headers: {
+          'content-type': file.type || object.contentType,
+          'content-length': String(object.body.byteLength),
+          'content-disposition': `${disposition}; filename="${encodeURIComponent(file.name)}"`,
+          'cache-control': 'private, max-age=300',
+        },
+      });
+    }
     return jsonResponse(getSqliteCrmStore().getSnapshot());
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Неизвестная ошибка чтения CRM.';
@@ -387,9 +410,21 @@ export async function POST(request: NextRequest) {
         return jsonResponse(store.deleteClient(requireString(payload, 'clientId', 'Удаление клиента')));
       case 'addFile':
         {
-          const file = validateDealFilePayload(payload.file);
+          const fileRecord = requireRecord(payload.file);
+          const file = validateDealFilePayload(fileRecord);
           ensureRelatedIdExists(store.getSnapshot().deals, file.dealId, 'Файл сделки: указанная сделка не найдена.');
-          return jsonResponse(store.upsertDealFile(file));
+          const storageResult = await store.getFileStorage().save({
+            fileId: file.id,
+            dealId: file.dealId,
+            fileName: file.name,
+            mimeType: file.type,
+            content: (fileRecord.content ?? file.previewUrl) as StoredFileContent,
+          });
+          return jsonResponse(store.upsertDealFile({
+            ...file,
+            storageKey: storageResult.storageKey,
+            previewUrl: storageResult.previewUrl ?? file.previewUrl ?? '/file.svg',
+          }));
         }
       case 'addActivityEvent':
         return jsonResponse(store.upsertActivityEvent(payload.event as ActivityEvent));
