@@ -1,17 +1,19 @@
 'use client';
 
 import type { ComponentType } from 'react';
-import { Circle, DraftingCompass, FileDown, Ruler, Grid2X2, Minus, MousePointer2, RectangleHorizontal, Redo2, Save, Type, Undo2 } from 'lucide-react';
+import { Circle, DraftingCompass, FileDown, Grid2X2, Magnet, Minus, MousePointer2, RectangleHorizontal, Redo2, Ruler, Save, Type, Undo2 } from 'lucide-react';
 import type { DrawingTool } from '@/types/crm';
 
 export type DrawingToolbarProps = {
   activeTool: DrawingTool;
   showGrid: boolean;
   snapToGrid: boolean;
+  orthoMode: boolean;
   canSave: boolean;
   onToolChange: (tool: DrawingTool) => void;
   onShowGridChange: (enabled: boolean) => void;
   onSnapToGridChange: (enabled: boolean) => void;
+  onOrthoModeChange: (enabled: boolean) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -32,7 +34,7 @@ const TOOL_BUTTONS: Array<{ tool: DrawingTool; title: string; icon: ComponentTyp
   { tool: 'text', title: 'Текст', icon: Type },
 ];
 
-export function DrawingToolbar({ activeTool, showGrid, snapToGrid, canSave, canUndo, canRedo, onToolChange, onShowGridChange, onSnapToGridChange, onUndo, onRedo, onSave, onExportPdf, onClear, onClose }: DrawingToolbarProps) {
+export function DrawingToolbar({ activeTool, showGrid, snapToGrid, orthoMode, canSave, canUndo, canRedo, onToolChange, onShowGridChange, onSnapToGridChange, onOrthoModeChange, onUndo, onRedo, onSave, onExportPdf, onClear, onClose }: DrawingToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap gap-2" aria-label="Инструменты чертежа">
@@ -45,6 +47,7 @@ export function DrawingToolbar({ activeTool, showGrid, snapToGrid, canSave, canU
       <div className="mx-1 hidden h-8 w-px bg-slate-200 md:block" />
       <button type="button" onClick={() => onShowGridChange(!showGrid)} className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition ${showGrid ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`} aria-pressed={showGrid}><Grid2X2 className="h-4 w-4" />Сетка</button>
       <button type="button" onClick={() => onSnapToGridChange(!snapToGrid)} className={`rounded-xl px-3 py-2 text-sm font-bold transition ${snapToGrid ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`} aria-pressed={snapToGrid}>Привязка {snapToGrid ? 'вкл.' : 'выкл.'}</button>
+      <button type="button" onClick={() => onOrthoModeChange(!orthoMode)} className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition ${orthoMode ? 'bg-violet-50 text-violet-700 ring-1 ring-violet-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`} aria-pressed={orthoMode} title="Автовыравнивание по горизонтали и вертикали"><Magnet className="h-4 w-4" />Орто {orthoMode ? 'вкл.' : 'выкл.'}</button>
       <div className="ml-auto flex flex-wrap gap-2">
         <button type="button" onClick={onUndo} disabled={!canUndo} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"><Undo2 className="h-4 w-4" />Назад</button>
         <button type="button" onClick={onRedo} disabled={!canRedo} className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"><Redo2 className="h-4 w-4" />Вперёд</button>

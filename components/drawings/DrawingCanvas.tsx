@@ -58,6 +58,10 @@ function getSegmentMidPoint(points: DrawingPoint[], index: number): DrawingPoint
 const LABEL_FONT_SIZE = 10;
 const LABEL_MIN_FONT_SIZE = 5;
 const LABEL_LINE_GAP = 10;
+const DIMENSION_OFFSET = 26;
+const DIMENSION_EXTENSION = 10;
+const DIMENSION_TICK = 5;
+const ANGLE_LABEL_GAP = 16;
 const DIMENSION_STROKE = '#2563eb';
 const ANGLE_STROKE = '#ea580c';
 
@@ -66,7 +70,7 @@ function getReadableLabelMetrics(label: string, segmentLength: number) {
   const maxWidthNearLine = Math.max(34, segmentLength - LABEL_LINE_GAP * 2);
   const shouldMoveOutside = estimatedTextWidth > maxWidthNearLine;
   const fontSize = Math.max(LABEL_MIN_FONT_SIZE, Math.min(LABEL_FONT_SIZE, maxWidthNearLine / Math.max(label.length * 0.82, 1), segmentLength / 8));
-  return { fontSize, offset: shouldMoveOutside ? 26 : 16 };
+  return { fontSize, offset: shouldMoveOutside ? 30 : 18 };
 }
 
 function getOffsetLinePoints(start: DrawingPoint, end: DrawingPoint, offset: number) {
@@ -85,8 +89,12 @@ function getOffsetLinePoints(start: DrawingPoint, end: DrawingPoint, offset: num
 }
 
 
+function formatAngleDeg(angle: number): number {
+  return Math.round(angle);
+}
+
 function getAngleMarkerGeometry(element: DrawingElement) {
-  const angle = element.angleDeg ?? 0;
+  const angle = formatAngleDeg(element.angleDeg ?? 0);
   const vertex = element.vertex;
   if (!vertex) {
     const labelX = (element.start.x + element.end.x) / 2;
@@ -94,7 +102,7 @@ function getAngleMarkerGeometry(element: DrawingElement) {
     return { angle, label: { x: labelX, y: labelY - 6 }, path: `M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}`, rightAnglePoints: null as string | null };
   }
 
-  const radius = Math.max(16, Math.hypot(element.start.x - vertex.x, element.start.y - vertex.y));
+  const radius = Math.max(22, Math.hypot(element.start.x - vertex.x, element.start.y - vertex.y));
   const startAngle = Math.atan2(element.start.y - vertex.y, element.start.x - vertex.x);
   let endAngle = Math.atan2(element.end.y - vertex.y, element.end.x - vertex.x);
   let delta = endAngle - startAngle;
@@ -103,11 +111,11 @@ function getAngleMarkerGeometry(element: DrawingElement) {
   const sweep = delta >= 0 ? 1 : 0;
   const largeArc = Math.abs(delta) > Math.PI ? 1 : 0;
   const middleAngle = startAngle + delta / 2;
-  const labelRadius = radius + 10;
+  const labelRadius = radius + ANGLE_LABEL_GAP;
   const label = { x: vertex.x + Math.cos(middleAngle) * labelRadius, y: vertex.y + Math.sin(middleAngle) * labelRadius };
   const unitStart = { x: Math.cos(startAngle), y: Math.sin(startAngle) };
   const unitEnd = { x: Math.cos(endAngle), y: Math.sin(endAngle) };
-  const squareSize = Math.min(14, radius * 0.6);
+  const squareSize = Math.min(14, radius * 0.55);
   const p1 = { x: vertex.x + unitStart.x * squareSize, y: vertex.y + unitStart.y * squareSize };
   const p2 = { x: p1.x + unitEnd.x * squareSize, y: p1.y + unitEnd.y * squareSize };
   const p3 = { x: vertex.x + unitEnd.x * squareSize, y: vertex.y + unitEnd.y * squareSize };
@@ -220,7 +228,7 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
           <path d={geometry.path} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
         )}
         <text x={geometry.label.x} y={geometry.label.y} textAnchor="middle" className="select-none font-bold" fontSize={Math.max(7, Math.min(12, Math.max(16, Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y)) / 4))} fill={ANGLE_STROKE}>
-          {element.text || `${geometry.angle}°`}
+          {`${geometry.angle}°`}
         </text>
       </g>
     );
@@ -231,11 +239,12 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
     const length = Math.round(rawLength);
     const label = element.text || `${length} мм`;
     const labelMetrics = getReadableLabelMetrics(label, rawLength);
-    const offset = getOffsetLinePoints(element.start, element.end, labelMetrics.offset);
-    const extension = 8;
-    const tick = 6;
+    const offset = getOffsetLinePoints(element.start, element.end, Math.max(DIMENSION_OFFSET, labelMetrics.offset));
+    const extension = DIMENSION_EXTENSION;
+    const tick = DIMENSION_TICK;
     const labelX = (offset.start.x + offset.end.x) / 2;
-    const labelY = (offset.start.y + offset.end.y) / 2 - 4;
+    const labelY = (offset.start.y + offset.end.y) / 2;
+    const textWidth = Math.max(34, label.length * labelMetrics.fontSize * 0.62);
 
     return (
       <g key={element.id}>
@@ -244,7 +253,8 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
         <line x1={offset.start.x} y1={offset.start.y} x2={offset.end.x} y2={offset.end.y} stroke={DIMENSION_STROKE} strokeWidth={1.6} />
         <line x1={offset.start.x - offset.normalX * tick} y1={offset.start.y - offset.normalY * tick} x2={offset.start.x + offset.normalX * tick} y2={offset.start.y + offset.normalY * tick} stroke={DIMENSION_STROKE} strokeWidth={1.6} />
         <line x1={offset.end.x - offset.normalX * tick} y1={offset.end.y - offset.normalY * tick} x2={offset.end.x + offset.normalX * tick} y2={offset.end.y + offset.normalY * tick} stroke={DIMENSION_STROKE} strokeWidth={1.6} />
-        <text x={labelX} y={labelY} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={DIMENSION_STROKE}>
+        <rect x={labelX - textWidth / 2 - 3} y={labelY - labelMetrics.fontSize - 2} width={textWidth + 6} height={labelMetrics.fontSize + 6} rx={2} fill="white" opacity={0.92} />
+        <text x={labelX} y={labelY + labelMetrics.fontSize * 0.35} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={DIMENSION_STROKE}>
           {label}
         </text>
       </g>

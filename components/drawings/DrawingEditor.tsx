@@ -129,6 +129,13 @@ function buildElementFromPoints(dealId: string, tool: DrawingTool, start: Drawin
   } as DrawingElement;
 }
 
+function applyOrthoMode(start: DrawingPoint, end: DrawingPoint, enabled: boolean): DrawingPoint {
+  if (!enabled) return end;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  return Math.abs(dx) >= Math.abs(dy) ? { x: end.x, y: start.y } : { x: start.x, y: end.y };
+}
+
 function getDirectedPoint(start: DrawingPoint, directionPoint: DrawingPoint, lengthMm: number): DrawingPoint {
   const dx = directionPoint.x - start.x;
   const dy = directionPoint.y - start.y;
@@ -149,6 +156,10 @@ function getVectorFromVertex(element: DrawingElement, vertex: DrawingPoint): Dra
   return { x: target.x - vertex.x, y: target.y - vertex.y };
 }
 
+function formatAngleDeg(angle: number): number {
+  return Math.round(angle);
+}
+
 function getAngleBetweenElements(first: DrawingElement, second: DrawingElement, vertex = getSharedEndpoint(first, second)): number {
   const firstVector = vertex ? getVectorFromVertex(first, vertex) : { x: first.end.x - first.start.x, y: first.end.y - first.start.y };
   const secondVector = vertex ? getVectorFromVertex(second, vertex) : { x: second.end.x - second.start.x, y: second.end.y - second.start.y };
@@ -156,7 +167,7 @@ function getAngleBetweenElements(first: DrawingElement, second: DrawingElement, 
   const secondAngle = Math.atan2(secondVector.y, secondVector.x);
   const rawAngle = Math.abs(((secondAngle - firstAngle) * 180) / Math.PI);
   const normalized = rawAngle > 180 ? 360 - rawAngle : rawAngle;
-  return Number(normalized.toFixed(1));
+  return formatAngleDeg(normalized);
 }
 
 function createAngleElement(dealId: string, first: DrawingElement, second: DrawingElement): DrawingElement | null {
@@ -348,14 +359,14 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
   const point = (value: DrawingPoint) => ({ x: toPdfX(value.x), y: toPdfY(value.y) });
   const commands: string[] = ['0 0 0 rg 0 0 0 RG'];
   commands.push('0 0 0 rg', 'BT /F1 18 Tf 32 558 Td', `${encodePdfText(payload.title)} Tj`, 'ET');
-  commands.push('BT /F1 9 Tf 32 540 Td', `${encodePdfText(`Data: ${new Date().toLocaleString('ru-RU')} - Scale auto`) } Tj`, 'ET');
+  commands.push('BT /F1 9 Tf 32 540 Td', `${encodePdfText(`Дата: ${new Date().toLocaleString('ru-RU')} · Масштаб авто`) } Tj`, 'ET');
   for (const element of payload.elements) {
     if (element.tool === 'line' || element.tool === 'hem') {
       const a = point(element.start);
       const b = point(element.end);
       commands.push('0.06 0.09 0.16 RG 2 w', `${a.x.toFixed(2)} ${a.y.toFixed(2)} m ${b.x.toFixed(2)} ${b.y.toFixed(2)} l S`);
       const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
-      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${((a.x + b.x) / 2).toFixed(2)} ${((a.y + b.y) / 2 + 12).toFixed(2)} Td`, `${encodePdfText(`${length} mm`)} Tj`, 'ET');
+      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${((a.x + b.x) / 2).toFixed(2)} ${((a.y + b.y) / 2 + 12).toFixed(2)} Td`, `${encodePdfText(`${length} мм`)} Tj`, 'ET');
     }
     if (element.tool === 'dimension') {
       const offset = getOffsetLinePoints(element.start, element.end, 22 / scale);
@@ -369,7 +380,7 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
       const tick = 6;
       commands.push('0.15 0.39 0.92 RG 1.2 w', `${a.x.toFixed(2)} ${a.y.toFixed(2)} m ${(os.x + normalX * extension).toFixed(2)} ${(os.y + normalY * extension).toFixed(2)} l S`, `${b.x.toFixed(2)} ${b.y.toFixed(2)} m ${(oe.x + normalX * extension).toFixed(2)} ${(oe.y + normalY * extension).toFixed(2)} l S`);
       commands.push('0.15 0.39 0.92 RG 1.6 w', `${os.x.toFixed(2)} ${os.y.toFixed(2)} m ${oe.x.toFixed(2)} ${oe.y.toFixed(2)} l S`, `${(os.x - normalX * tick).toFixed(2)} ${(os.y - normalY * tick).toFixed(2)} m ${(os.x + normalX * tick).toFixed(2)} ${(os.y + normalY * tick).toFixed(2)} l S`, `${(oe.x - normalX * tick).toFixed(2)} ${(oe.y - normalY * tick).toFixed(2)} m ${(oe.x + normalX * tick).toFixed(2)} ${(oe.y + normalY * tick).toFixed(2)} l S`);
-      const label = toPdfSafeText(element.text || `${Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y))} mm`).replace('мм', 'mm');
+      const label = toPdfSafeText(element.text || `${Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y))} мм`);
       commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${((os.x + oe.x) / 2 - 18).toFixed(2)} ${((os.y + oe.y) / 2 + 6).toFixed(2)} Td`, `${encodePdfText(label)} Tj`, 'ET');
     }
     if (element.tool === 'angleDimension') {
@@ -391,7 +402,7 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
         });
         commands.push('0.92 0.32 0.04 RG 1.5 w', `${points.map((item, index) => `${item.x.toFixed(2)} ${item.y.toFixed(2)} ${index === 0 ? 'm' : 'l'}`).join(' ')} S`);
         const middle = points[Math.floor(points.length / 2)];
-        commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${(middle.x + 6).toFixed(2)} ${(middle.y + 8).toFixed(2)} Td`, `${encodePdfText(`${angle} deg`)} Tj`, 'ET');
+        commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${(middle.x + 6).toFixed(2)} ${(middle.y + 8).toFixed(2)} Td`, `${encodePdfText(`${formatAngleDeg(angle)}°`)} Tj`, 'ET');
       } else {
         commands.push('0.92 0.32 0.04 RG 1.5 w', `${a.x.toFixed(2)} ${a.y.toFixed(2)} m ${b.x.toFixed(2)} ${b.y.toFixed(2)} l S`);
       }
@@ -404,13 +415,13 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
     }
     if (element.tool === 'text') {
       const a = point(element.start);
-      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${a.x.toFixed(2)} ${a.y.toFixed(2)} Td`, `${encodePdfText(element.text || 'Text')} Tj`, 'ET');
+      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${a.x.toFixed(2)} ${a.y.toFixed(2)} Td`, `${encodePdfText(element.text || 'Текст')} Tj`, 'ET');
     }
   }
   commands.push('0.80 0.84 0.90 RG 0.8 w 24 74 m 818 74 l S');
-  commands.push('0 0 0 rg', 'BT /F1 13 Tf 32 56 Td', `${encodePdfText('Specification') } Tj`, 'ET');
+  commands.push('0 0 0 rg', 'BT /F1 13 Tf 32 56 Td', `${encodePdfText('Спецификация изделий') } Tj`, 'ET');
   payload.products.slice(0, 4).forEach((product, index) => {
-    const line = `${index + 1}. ${product.name} ${product.profileFormula} - L=${product.lengthMm} mm - ${product.quantity} pcs - ${product.material} ${product.thicknessMm} mm - ${product.color}`;
+    const line = `${index + 1}. ${product.name} ${product.profileFormula} · L=${product.lengthMm} мм · ${product.quantity} шт · ${product.material} ${product.thicknessMm} мм · ${product.color}`;
     commands.push('0 0 0 rg', 'BT /F1 9 Tf', `32 ${40 - index * 11} Td`, `${encodePdfText(line)} Tj`, 'ET');
   });
   const stream = commands.join('\n');
@@ -439,6 +450,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onClo
   const [activeTool, setActiveTool] = useState<DrawingTool>('line');
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(false);
+  const [orthoMode, setOrthoMode] = useState(true);
   const [elements, setElements] = useState<DrawingElement[]>(initialDrawing?.elements ?? []);
   const [undoStack, setUndoStack] = useState<DrawingElement[][]>([]);
   const [redoStack, setRedoStack] = useState<DrawingElement[][]>([]);
@@ -538,7 +550,8 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onClo
 
   const finishDraft = useCallback((end: DrawingPoint, explicitLength?: number) => {
     if (!draftStart) return;
-    const finalEnd = explicitLength ? getDirectedPoint(draftStart, end, explicitLength) : end;
+    const orthoEnd = applyOrthoMode(draftStart, end, orthoMode);
+    const finalEnd = explicitLength ? getDirectedPoint(draftStart, orthoEnd, explicitLength) : orthoEnd;
     const baseElement = buildElementFromPoints(dealId, activeTool, draftStart, finalEnd, elements.length);
     if (!baseElement) return;
     const element = explicitLength ? resizeElementToExactLength(baseElement, explicitLength) : baseElement;
@@ -547,7 +560,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onClo
     setDraftStart(null);
     setPreviewElement(null);
     setManualLength('');
-  }, [activeTool, commitElements, dealId, draftStart, elements.length]);
+  }, [activeTool, commitElements, dealId, draftStart, elements.length, orthoMode]);
 
   const handleWheelZoom = useCallback((deltaY: number, anchor: DrawingPoint) => {
     setZoom((currentZoom) => {
@@ -618,17 +631,17 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onClo
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm">
       <div className="mx-auto max-w-7xl rounded-3xl bg-slate-50 p-4 shadow-2xl">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Редактор чертежей</p><h2 className="mt-1 text-2xl font-bold text-slate-950">{title}</h2><p className="mt-1 text-sm text-slate-600">Оранжевая точка — реальный курсор, синяя — точка привязки. Колесо мыши приближает и отдаляет поле. Первый клик задаёт начало, второй фиксирует конец. Можно ввести длину цифрами и нажать Enter — линия построится по текущему направлению мыши. Привязка к концам линий работает всегда, сетка добавляет шаг 1 мм.</p></div>
+          <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Редактор чертежей</p><h2 className="mt-1 text-2xl font-bold text-slate-950">{title}</h2><p className="mt-1 text-sm text-slate-600">Оранжевая точка — реальный курсор, синяя — точка привязки. Колесо мыши приближает и отдаляет поле. Первый клик задаёт начало, второй фиксирует конец. Можно ввести длину цифрами и нажать Enter — линия построится по текущему направлению мыши. Привязка к концам линий работает всегда, сетка добавляет шаг 1 мм, режим «Орто» выравнивает новые отрезки по горизонтали и вертикали.</p></div>
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">Объектов: <span className="font-bold text-slate-950">{elements.length}</span>{mousePoint ? <span> · Курсор X {Math.round(mousePoint.x)} / Y {Math.round(mousePoint.y)}</span> : null}{snappedPoint ? <span> · Привязка X {Math.round(snappedPoint.x)} / Y {Math.round(snappedPoint.y)}</span> : null}{manualLength ? <span> · Длина: {manualLength} мм ↵</span> : null}</div>
         </div>
-        <DrawingToolbar activeTool={activeTool} showGrid={showGrid} snapToGrid={snapToGrid} canSave={elements.length > 0} onToolChange={(tool) => { setActiveTool(tool); setDraftStart(null); setPreviewElement(null); setManualLength(''); setPendingAngleElementId(null); }} onShowGridChange={setShowGrid} onSnapToGridChange={setSnapToGrid} canUndo={undoStack.length > 0} canRedo={redoStack.length > 0} onUndo={undo} onRedo={redo} onClear={() => { commitElements([]); setSelectedElementId(null); setDraftStart(null); setPreviewElement(null); setManualLength(''); setPendingAngleElementId(null); }} onClose={onClose} onExportPdf={exportPdf} onSave={() => onSave(dealId, payload)} />
+        <DrawingToolbar activeTool={activeTool} showGrid={showGrid} snapToGrid={snapToGrid} orthoMode={orthoMode} canSave={elements.length > 0} onToolChange={(tool) => { setActiveTool(tool); setDraftStart(null); setPreviewElement(null); setManualLength(''); setPendingAngleElementId(null); }} onShowGridChange={setShowGrid} onSnapToGridChange={setSnapToGrid} onOrthoModeChange={setOrthoMode} canUndo={undoStack.length > 0} canRedo={redoStack.length > 0} onUndo={undo} onRedo={redo} onClear={() => { commitElements([]); setSelectedElementId(null); setDraftStart(null); setPreviewElement(null); setManualLength(''); setPendingAngleElementId(null); }} onClose={onClose} onExportPdf={exportPdf} onSave={() => onSave(dealId, payload)} />
         <div className="mt-4 grid gap-4 xl:grid-cols-[320px_1fr]">
           <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
             <section><h3 className="font-bold text-slate-950">Параметры изделия</h3><p className="mt-1 text-xs text-slate-500">Развертка считается автоматически по нарисованным линиям, затем умножается на длину изделия для м².</p><div className="mt-3 grid gap-2 text-sm"><input value={productSpec.name} onChange={(event) => setProductSpec((current) => ({ ...current, name: event.target.value }))} className="rounded-xl border px-3 py-2" placeholder="Название" /><div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">Развертка: <b>{getManualFormula(elements)}</b> · площадь: <b>{getAreaM2(getUnfoldingMm(elements), productSpec.lengthMm, productSpec.quantity)} м²</b></div><div className="grid grid-cols-2 gap-2"><input type="number" value={productSpec.lengthMm} onChange={(event) => setProductSpec((current) => ({ ...current, lengthMm: Number(event.target.value) || 0 }))} className="rounded-xl border px-3 py-2" placeholder="Длина" /><input type="number" value={productSpec.quantity} onChange={(event) => setProductSpec((current) => ({ ...current, quantity: Number(event.target.value) || 1 }))} className="rounded-xl border px-3 py-2" placeholder="Кол-во" /></div><div className="grid grid-cols-2 gap-2"><input value={productSpec.material} onChange={(event) => setProductSpec((current) => ({ ...current, material: event.target.value }))} className="rounded-xl border px-3 py-2" placeholder="Материал" /><input type="number" step="0.1" value={productSpec.thicknessMm} onChange={(event) => setProductSpec((current) => ({ ...current, thicknessMm: Number(event.target.value) || 0 }))} className="rounded-xl border px-3 py-2" placeholder="Толщина" /></div><input value={productSpec.color} onChange={(event) => setProductSpec((current) => ({ ...current, color: event.target.value }))} className="rounded-xl border px-3 py-2" placeholder="Цвет" /></div></section>
             <section><h4 className="text-sm font-bold text-slate-950">Спецификация</h4><ul className="mt-2 space-y-2 text-xs text-slate-600">{products.map((product) => <li key={product.id} className="rounded-xl bg-slate-50 p-2"><b>{product.name}</b> {product.profileFormula} · L={product.lengthMm} мм · {product.quantity} шт{product.areaM2 !== undefined ? ` · ${product.areaM2} м²` : ''}</li>)}</ul></section>
             {selectedElement ? <section className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm"><h4 className="font-bold text-slate-950">Выбранный объект</h4><p className="mt-1 text-xs text-slate-600">{selectedElement.tool} · {selectedElement.id}</p><button type="button" onClick={() => { commitElements((current) => current.filter((element) => element.id !== selectedElement.id)); setSelectedElementId(null); }} className="mt-3 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white">Удалить</button></section> : null}
           </aside>
-          <DrawingCanvas width={CANVAS_WIDTH} height={CANVAS_HEIGHT} gridSize={GRID_SIZE} showGrid={showGrid} elements={elements} previewElement={previewElement} mousePoint={mousePoint} snappedPoint={snappedPoint} selectedElementId={selectedElementId} zoom={zoom} viewBox={viewBox} canSelectElements={activeTool === 'select' || activeTool === 'angleDimension'} onWheelZoom={handleWheelZoom} onSelectElement={selectElement} onPointerDown={(rawPoint) => { setMousePoint(rawPoint); const point = getSnappedPoint(rawPoint, elements, snapToGrid, zoom); setSnappedPoint(point); if (activeTool === 'select' || activeTool === 'angleDimension') return; if (activeTool === 'text') { addTextElement(point); return; } if (draftStart) { finishDraft(point, manualLength ? Number(manualLength) : undefined); return; } setDraftStart(point); setManualLength(''); updatePreview(point, point); }} onPointerMove={(rawPoint) => { setMousePoint(rawPoint); const point = getSnappedPoint(rawPoint, elements, snapToGrid, zoom); setSnappedPoint(point); if (draftStart) { const previewEnd = manualLength ? getDirectedPoint(draftStart, point, Number(manualLength)) : point; updatePreview(draftStart, previewEnd); } }} onPointerUp={() => undefined} />
+          <DrawingCanvas width={CANVAS_WIDTH} height={CANVAS_HEIGHT} gridSize={GRID_SIZE} showGrid={showGrid} elements={elements} previewElement={previewElement} mousePoint={mousePoint} snappedPoint={snappedPoint} selectedElementId={selectedElementId} zoom={zoom} viewBox={viewBox} canSelectElements={activeTool === 'select' || activeTool === 'angleDimension'} onWheelZoom={handleWheelZoom} onSelectElement={selectElement} onPointerDown={(rawPoint) => { setMousePoint(rawPoint); const point = getSnappedPoint(rawPoint, elements, snapToGrid, zoom); setSnappedPoint(point); if (activeTool === 'select' || activeTool === 'angleDimension') return; if (activeTool === 'text') { addTextElement(point); return; } if (draftStart) { finishDraft(point, manualLength ? Number(manualLength) : undefined); return; } setDraftStart(point); setManualLength(''); updatePreview(point, point); }} onPointerMove={(rawPoint) => { setMousePoint(rawPoint); const point = getSnappedPoint(rawPoint, elements, snapToGrid, zoom); setSnappedPoint(point); if (draftStart) { const previewEnd = manualLength ? getDirectedPoint(draftStart, applyOrthoMode(draftStart, point, orthoMode), Number(manualLength)) : applyOrthoMode(draftStart, point, orthoMode); updatePreview(draftStart, previewEnd); } }} onPointerUp={() => undefined} />
         </div>
       </div>
     </div>
