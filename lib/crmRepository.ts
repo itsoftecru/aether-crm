@@ -1,5 +1,37 @@
 import { createEmptyDealFinancials } from '@/lib/dealFinancials';
-import type { ActivityEvent, Client, Deal, DealFile, DealStatus, Reminder } from '@/types/crm';
+import type { ActivityEvent, Client, CrmSettings, Deal, DealFile, DealStatus, Reminder } from '@/types/crm';
+
+
+export const INITIAL_SETTINGS: CrmSettings = {
+  teamMembers: [
+    { id: 'team-001', name: 'Мария Орлова', role: 'Ведущий менеджер', email: 'maria.orlova@example.com', phone: '+7 (921) 100-10-01', isActive: true },
+    { id: 'team-002', name: 'Олег Романов', role: 'Менеджер проектов', email: 'oleg.romanov@example.com', phone: '+7 (916) 100-10-02', isActive: true },
+    { id: 'team-003', name: 'Екатерина Волкова', role: 'Аккаунт-менеджер', email: 'ekaterina.volkova@example.com', phone: '+7 (812) 100-10-03', isActive: true },
+  ],
+  dealStatuses: [
+    { id: 'lead', title: 'Обращение', colorClassName: 'border-slate-200 bg-slate-100 text-slate-700', sortOrder: 10, isActive: true },
+    { id: 'specApproval', title: 'Согласование ТЗ', colorClassName: 'border-orange-200 bg-orange-50 text-orange-700', sortOrder: 20, isActive: true },
+    { id: 'inProgress', title: 'В работе', colorClassName: 'border-blue-200 bg-blue-50 text-blue-700', sortOrder: 30, isActive: true },
+    { id: 'done', title: 'Выполнено', colorClassName: 'border-emerald-200 bg-emerald-50 text-emerald-700', sortOrder: 40, isActive: true },
+  ],
+  costCategories: [
+    { id: 'rawMaterial', title: 'Покупка сырья', description: 'Материалы и комплектующие', sortOrder: 10, isActive: true },
+    { id: 'factoryLoading', title: 'Паллеты и заводская отгрузка', description: 'Подготовка и отгрузка с производства', sortOrder: 20, isActive: true },
+    { id: 'workshopDelivery', title: 'Доставка до цеха', description: 'Логистика материалов до мастерской', sortOrder: 30, isActive: true },
+    { id: 'employeeLabor', title: 'Работа сотрудников', description: 'Почасовая оплата команды', sortOrder: 40, isActive: true },
+    { id: 'paintShopLogistics', title: 'Логистика до цеха покраски', description: 'Перевозка деталей на покраску', sortOrder: 50, isActive: true },
+    { id: 'painting', title: 'Стоимость покраски', description: 'Работы и материалы покрасочного цеха', sortOrder: 60, isActive: true },
+    { id: 'other', title: 'Прочие расходы', description: 'Дополнительные затраты сделки', sortOrder: 70, isActive: true },
+  ],
+  money: { currency: 'RUB', locale: 'ru-RU', minimumFractionDigits: 0, maximumFractionDigits: 2, roundingIncrement: 1, applyRoundingToDocuments: true },
+  company: { name: 'AetherCRM Furniture', legalName: 'ООО «Аэтер Мебель»', inn: '7800000000', kpp: '780001001', ogrn: '1267800000000', address: 'Санкт-Петербург, Невский проспект, 1', bankName: 'АО «Демонстрационный банк»', bik: '044030000', checkingAccount: '40702810000000000001', correspondentAccount: '30101810000000000000', phone: '+7 (812) 000-00-00', email: 'office@aether-crm.example' },
+  documentTemplates: [
+    { id: 'proposal', title: 'Коммерческое предложение', filePrefix: 'КП', body: 'Коммерческое предложение по сделке {{dealTitle}} для {{clientName}} на сумму {{revenue}}.', isActive: true },
+    { id: 'contract', title: 'Договор', filePrefix: 'Договор', body: 'Договор с {{clientName}} по проекту {{dealTitle}}. Исполнитель: {{companyLegalName}}.', isActive: true },
+    { id: 'invoice', title: 'Счёт', filePrefix: 'Счёт', body: 'Счёт на оплату {{revenue}} по сделке {{dealId}}.', isActive: true },
+    { id: 'completionAct', title: 'Акт выполненных работ', filePrefix: 'Акт', body: 'Акт подтверждает выполнение работ по проекту {{dealTitle}}.', isActive: true },
+  ],
+};
 
 export const INITIAL_CLIENTS: Client[] = [
   {
@@ -315,6 +347,8 @@ export interface CrmRepository {
   getDealFiles(dealId?: string): Promise<DealFile[]>;
   getActivityEvents(): Promise<ActivityEvent[]>;
   getReminders(): Promise<Reminder[]>;
+  getSettings(): Promise<CrmSettings>;
+  updateSettings(settings: CrmSettings): Promise<CrmSettings>;
   addDeal(deal: Deal): Promise<Deal>;
   updateDeal(dealId: string, patch: Partial<Deal>): Promise<Deal | null>;
   deleteDeal(dealId: string): Promise<boolean>;
@@ -342,6 +376,7 @@ type CrmState = {
   dealFiles: Array<DealFile & { storageKey?: string | null }>;
   activityEvents: ActivityEvent[];
   reminders: Reminder[];
+  settings: CrmSettings;
 };
 
 const CRM_STATE_KEY = 'aether-crm:repository-state:v1';
@@ -403,6 +438,20 @@ function normalizeReminder(reminder: Partial<Reminder>): Reminder {
   };
 }
 
+
+function normalizeSettings(settings?: Partial<CrmSettings>): CrmSettings {
+  return {
+    ...INITIAL_SETTINGS,
+    ...settings,
+    teamMembers: Array.isArray(settings?.teamMembers) ? settings.teamMembers : INITIAL_SETTINGS.teamMembers,
+    dealStatuses: Array.isArray(settings?.dealStatuses) ? settings.dealStatuses : INITIAL_SETTINGS.dealStatuses,
+    costCategories: Array.isArray(settings?.costCategories) ? settings.costCategories : INITIAL_SETTINGS.costCategories,
+    money: { ...INITIAL_SETTINGS.money, ...(settings?.money ?? {}) },
+    company: { ...INITIAL_SETTINGS.company, ...(settings?.company ?? {}) },
+    documentTemplates: Array.isArray(settings?.documentTemplates) ? settings.documentTemplates : INITIAL_SETTINGS.documentTemplates,
+  };
+}
+
 function createInitialState(): CrmState {
   return {
     clients: INITIAL_CLIENTS,
@@ -410,6 +459,7 @@ function createInitialState(): CrmState {
     dealFiles: INITIAL_DEAL_FILES.map((file) => ({ ...file, storageKey: null })),
     activityEvents: INITIAL_ACTIVITY_EVENTS,
     reminders: INITIAL_REMINDERS.map(normalizeReminder),
+    settings: INITIAL_SETTINGS,
   };
 }
 
@@ -426,6 +476,7 @@ function safeParseState(value: string | null): CrmState | null {
       dealFiles: parsed.dealFiles,
       activityEvents: parsed.activityEvents,
       reminders: Array.isArray(parsed.reminders) ? parsed.reminders.map((reminder) => normalizeReminder(reminder as Partial<Reminder>)) : INITIAL_REMINDERS.map(normalizeReminder),
+      settings: normalizeSettings(parsed.settings),
     };
   } catch {
     return null;
@@ -499,6 +550,25 @@ export class LocalStorageCrmRepository implements CrmRepository {
       this.writeState(state);
     }
     return reminders;
+  }
+
+
+  async getSettings(): Promise<CrmSettings> {
+    const state = this.readState();
+    const settings = normalizeSettings(state.settings);
+    if (JSON.stringify(settings) !== JSON.stringify(state.settings)) {
+      state.settings = settings;
+      this.writeState(state);
+    }
+    return settings;
+  }
+
+  async updateSettings(settings: CrmSettings): Promise<CrmSettings> {
+    const state = this.readState();
+    const normalizedSettings = normalizeSettings(settings);
+    state.settings = normalizedSettings;
+    this.writeState(state);
+    return normalizedSettings;
   }
 
   async addDeal(deal: Deal): Promise<Deal> {
