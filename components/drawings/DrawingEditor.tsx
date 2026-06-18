@@ -205,6 +205,21 @@ function createDrawingProducts(elements: DrawingElement[], draft: ProductSpecDra
   ];
 }
 
+
+function getOffsetLinePoints(start: DrawingPoint, end: DrawingPoint, offset: number) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  return {
+    start: { x: start.x + normalX * offset, y: start.y + normalY * offset },
+    end: { x: end.x + normalX * offset, y: end.y + normalY * offset },
+    normalX,
+    normalY,
+  };
+}
+
 function renderElementToSvg(element: DrawingElement): string {
   const stroke = '#0f172a';
   if (element.tool === 'profile' && element.profile) {
@@ -245,13 +260,18 @@ function renderElementToSvg(element: DrawingElement): string {
     const labelX = (element.start.x + element.end.x) / 2;
     const labelY = (element.start.y + element.end.y) / 2 - 18;
     const label = escapeXml(element.text || `${element.angleDeg ?? 0}°`);
-    return `<g><path d="M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}" stroke="${stroke}" stroke-width="1.8" fill="none"/><rect x="${labelX - 24}" y="${labelY - 16}" width="48" height="22" rx="8" fill="white" stroke="#cbd5e1"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="${stroke}">${label}</text></g>`;
+    const isRightAngle = Math.abs((element.angleDeg ?? 0) - 90) <= 0.5;
+    const marker = isRightAngle ? `<polyline points="${element.start.x},${element.start.y} ${labelX},${labelY} ${element.end.x},${element.end.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/>` : `<path d="M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/>`;
+    return `<g>${marker}<text x="${labelX}" y="${labelY - 6}" text-anchor="middle" font-size="13" font-weight="700" fill="#ea580c">${label}</text></g>`;
   }
   if (element.tool === 'dimension') {
-    const labelX = (element.start.x + element.end.x) / 2;
-    const labelY = (element.start.y + element.end.y) / 2 - 8;
     const label = escapeXml(element.text || `${Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y))} мм`);
-    return `<g><line x1="${element.start.x}" y1="${element.start.y}" x2="${element.end.x}" y2="${element.end.y}" stroke="${stroke}" stroke-width="1.6" stroke-dasharray="4 4"/><circle cx="${element.start.x}" cy="${element.start.y}" r="4" fill="${stroke}"/><circle cx="${element.end.x}" cy="${element.end.y}" r="4" fill="${stroke}"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="${stroke}">${label}</text></g>`;
+    const offset = getOffsetLinePoints(element.start, element.end, 20);
+    const extension = 8;
+    const tick = 6;
+    const labelX = (offset.start.x + offset.end.x) / 2;
+    const labelY = (offset.start.y + offset.end.y) / 2 - 4;
+    return `<g><line x1="${element.start.x}" y1="${element.start.y}" x2="${offset.start.x + offset.normalX * extension}" y2="${offset.start.y + offset.normalY * extension}" stroke="#2563eb" stroke-width="1.2"/><line x1="${element.end.x}" y1="${element.end.y}" x2="${offset.end.x + offset.normalX * extension}" y2="${offset.end.y + offset.normalY * extension}" stroke="#2563eb" stroke-width="1.2"/><line x1="${offset.start.x}" y1="${offset.start.y}" x2="${offset.end.x}" y2="${offset.end.y}" stroke="#2563eb" stroke-width="1.6"/><line x1="${offset.start.x - offset.normalX * tick}" y1="${offset.start.y - offset.normalY * tick}" x2="${offset.start.x + offset.normalX * tick}" y2="${offset.start.y + offset.normalY * tick}" stroke="#2563eb" stroke-width="1.6"/><line x1="${offset.end.x - offset.normalX * tick}" y1="${offset.end.y - offset.normalY * tick}" x2="${offset.end.x + offset.normalX * tick}" y2="${offset.end.y + offset.normalY * tick}" stroke="#2563eb" stroke-width="1.6"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="#2563eb">${label}</text></g>`;
   }
   return `<text x="${element.start.x}" y="${element.start.y}" font-size="18" font-weight="600" fill="${stroke}">${escapeXml(element.text || 'Текст')}</text>`;
 }
@@ -305,7 +325,15 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
       commands.push('BT /F1 12 Tf', `${element.start.x.toFixed(2)} ${pdfY(element.start.y, CANVAS_HEIGHT + 90)} Td`, `${encodePdfText(element.text || 'Текст')} Tj`, 'ET');
     }
   }
-  commands.push('BT /F1 13 Tf 30 42 Td', `${encodePdfText(`Спецификация: ${payload.products.map((p) => `${p.name} ${p.profileFormula}`).join('; ')}`)} Tj`, 'ET', 'Q');
+  commands.push('Q');
+  commands.push('BT /F1 16 Tf 30 555 Td', `${encodePdfText(payload.title)} Tj`, 'ET');
+  commands.push('BT /F1 10 Tf 30 535 Td', `${encodePdfText(`Дата: ${new Date().toLocaleString('ru-RU')} · Масштаб профилей: 1 мм = ${PROFILE_SCALE} px`)} Tj`, 'ET');
+  commands.push('0.80 0.84 0.90 RG 0.8 w 24 72 m 818 72 l S');
+  commands.push('BT /F1 13 Tf 30 54 Td', `${encodePdfText('Спецификация изделий') } Tj`, 'ET');
+  payload.products.slice(0, 3).forEach((product, index) => {
+    const line = `${index + 1}. ${product.name} ${product.profileFormula} · L=${product.lengthMm} мм · ${product.quantity} шт · ${product.material} ${product.thicknessMm} мм · ${product.color}`;
+    commands.push('BT /F1 9 Tf', `30 ${38 - index * 12} Td`, `${encodePdfText(line)} Tj`, 'ET');
+  });
   const stream = commands.join('\n');
   const objects = [
     '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
@@ -328,7 +356,7 @@ function createPayload(elements: DrawingElement[], title: string, productSpec: P
   return { name: `${title}.svg`, elements, products, title, svg: createSvgDocument(elements, title, products) };
 }
 
-export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExportPdf, onClose }: DrawingEditorProps) {
+export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onClose }: DrawingEditorProps) {
   const [activeTool, setActiveTool] = useState<DrawingTool>('line');
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(false);
@@ -474,8 +502,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 30000);
-    onExportPdf?.(dealId, pdfPayload);
-  }, [dealId, elements, onExportPdf, productSpec, title]);
+  }, [elements, productSpec, title]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
