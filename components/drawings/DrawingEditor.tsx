@@ -20,6 +20,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
   const [showGrid, setShowGrid] = useState(true);
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // TODO: Restore full drawing logic here - previous change broke it
   const handleSave = useCallback(() => {
     const svgContent = svgRef.current?.outerHTML || '';
     const payload: DrawingSavePayload = {
@@ -44,8 +45,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
     onExportPdf(dealId, payload);
   }, [elements, title, dealId, onExportPdf]);
 
-  // Fix for Cyrillic: ensure UTF-8 and Russian labels
-  const toPdfSafeText = (text: string) => text; // No translit, keep Russian
+  const toPdfSafeText = (text: string) => text; // Keep Russian
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
