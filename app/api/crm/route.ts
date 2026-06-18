@@ -36,7 +36,8 @@ const COST_CATEGORIES = [
 const REMINDER_PRIORITIES = ['low', 'medium', 'high'] as const;
 const REMINDER_TYPES = ['call', 'meeting', 'payment', 'task'] as const;
 const DOCUMENT_KINDS = ['proposal', 'contract', 'invoice', 'completionAct'] as const;
-const DRAWING_TOOLS = ['line', 'rectangle', 'circle', 'dimension', 'text'] as const;
+const DRAWING_TOOLS = ['line', 'rectangle', 'circle', 'dimension', 'text', 'profile'] as const;
+const BEND_TYPES = ['straight', 'bend', 'hem', 'lock', 'dripEdge'] as const;
 
 function validationError(message: string): never {
   throw new CrmValidationError(message);
@@ -216,6 +217,44 @@ function validateDrawingPoint(value: unknown, context: string) {
   return { x: requireNonNegativeNumber(record, 'x', context), y: requireNonNegativeNumber(record, 'y', context) };
 }
 
+function validateProfileSegment(value: unknown) {
+  const record = requireRecord(value);
+  return {
+    id: requireString(record, 'id', 'Сегмент профиля'),
+    lengthMm: requireNonNegativeNumber(record, 'lengthMm', 'Сегмент профиля'),
+    angleDeg: typeof record.angleDeg === 'number' && Number.isFinite(record.angleDeg) ? record.angleDeg : 0,
+    bendType: requireEnum(record.bendType, BEND_TYPES, 'bendType', 'Сегмент профиля'),
+    label: optionalString(record, 'label', 'Сегмент профиля'),
+    hemSizeMm: optionalNonNegativeNumber(record, 'hemSizeMm', 'Сегмент профиля'),
+    hemDirection: record.hemDirection === undefined ? undefined : requireEnum(record.hemDirection, ['inside', 'outside'] as const, 'hemDirection', 'Сегмент профиля'),
+    bendRadiusMm: optionalNonNegativeNumber(record, 'bendRadiusMm', 'Сегмент профиля'),
+  };
+}
+
+function validateProductProfile(value: unknown) {
+  const record = requireRecord(value);
+  return {
+    name: requireString(record, 'name', 'Профиль изделия'),
+    segments: requireArray(record.segments, 'Профиль изделия: поле «segments»').map(validateProfileSegment),
+    lengthMm: requireNonNegativeNumber(record, 'lengthMm', 'Профиль изделия'),
+    quantity: requireNonNegativeNumber(record, 'quantity', 'Профиль изделия'),
+    material: requireString(record, 'material', 'Профиль изделия'),
+    thicknessMm: requireNonNegativeNumber(record, 'thicknessMm', 'Профиль изделия'),
+    color: requireString(record, 'color', 'Профиль изделия'),
+    notes: optionalString(record, 'notes', 'Профиль изделия'),
+  };
+}
+
+function validateDrawingProduct(value: unknown) {
+  const record = requireRecord(value);
+  return {
+    id: requireString(record, 'id', 'Изделие чертежа'),
+    profileElementId: requireString(record, 'profileElementId', 'Изделие чертежа'),
+    profileFormula: requireString(record, 'profileFormula', 'Изделие чертежа'),
+    ...validateProductProfile(record),
+  };
+}
+
 function validateDrawingData(value: unknown): DealFile['drawingData'] {
   if (value === undefined) return undefined;
   const record = requireRecord(value);
@@ -229,9 +268,15 @@ function validateDrawingData(value: unknown): DealFile['drawingData'] {
         start: validateDrawingPoint(elementRecord.start, 'Начальная точка элемента чертежа'),
         end: validateDrawingPoint(elementRecord.end, 'Конечная точка элемента чертежа'),
         text: optionalString(elementRecord, 'text', 'Элемент чертежа'),
+        profile: elementRecord.profile === undefined ? undefined : validateProductProfile(elementRecord.profile),
       };
     }),
     svg: requireString(record, 'svg', 'Чертёж файла сделки'),
+    products: record.products === undefined ? undefined : requireArray(record.products, 'Чертёж файла сделки: поле «products»').map(validateDrawingProduct),
+    title: optionalString(record, 'title', 'Чертёж файла сделки'),
+    createdAt: optionalString(record, 'createdAt', 'Чертёж файла сделки'),
+    version: optionalNonNegativeNumber(record, 'version', 'Чертёж файла сделки'),
+    author: optionalString(record, 'author', 'Чертёж файла сделки'),
   };
 }
 
