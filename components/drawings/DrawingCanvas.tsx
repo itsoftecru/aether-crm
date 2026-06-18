@@ -1,19 +1,22 @@
 'use client';
 
 import type { PointerEvent } from 'react';
-import type { DrawingElement, DrawingPoint } from '@/types/crm';
+import type { DrawingElement, DrawingPoint, ProfileSegment } from '@/types/crm';
 
-type DrawingCanvasProps = {
+export type DrawingCanvasProps = {
   width: number;
   height: number;
   gridSize: number;
   showGrid: boolean;
   elements: DrawingElement[];
   previewElement: DrawingElement | null;
-  cursorPoint: DrawingPoint | null;
+  mousePoint: DrawingPoint | null;
+  snappedPoint: DrawingPoint | null;
+  selectedElementId: string | null;
   onPointerDown: (point: DrawingPoint) => void;
   onPointerMove: (point: DrawingPoint) => void;
   onPointerUp: (point: DrawingPoint) => void;
+  onSelectElement: (elementId: string) => void;
 };
 
 function getSvgPoint(event: PointerEvent<SVGSVGElement>): DrawingPoint {
@@ -27,17 +30,93 @@ function getSvgPoint(event: PointerEvent<SVGSVGElement>): DrawingPoint {
   };
 }
 
-function renderElement(element: DrawingElement, isPreview = false) {
-  const stroke = isPreview ? '#2563eb' : '#0f172a';
+function buildProfilePoints(start: DrawingPoint, segments: ProfileSegment[], scale = 2): DrawingPoint[] {
+  return segments.reduce<DrawingPoint[]>((points, segment, index) => {
+    const previous = points[index];
+    const radians = (segment.angleDeg * Math.PI) / 180;
+    return [
+      ...points,
+      {
+        x: previous.x + segment.lengthMm * scale * Math.cos(radians),
+        y: previous.y + segment.lengthMm * scale * Math.sin(radians),
+      },
+    ];
+  }, [start]);
+}
+
+function getSegmentMidPoint(points: DrawingPoint[], index: number): DrawingPoint {
+  const start = points[index];
+  const end = points[index + 1];
+  return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+}
+
+function getBendTitle(segment: ProfileSegment): string {
+  if (segment.bendType === 'hem') return `Завальцовка ${segment.hemSizeMm || segment.lengthMm} мм`;
+  if (segment.bendType === 'lock') return 'Замок';
+  if (segment.bendType === 'dripEdge') return 'Капельник';
+  if (segment.bendType === 'bend') return `Гиб ${segment.angleDeg}°`;
+  return segment.label || `${segment.lengthMm} мм`;
+}
+
+function renderProfile(element: DrawingElement, isPreview: boolean, isSelected: boolean) {
+  const profile = element.profile;
+  if (!profile) return null;
+  const stroke = isPreview ? '#2563eb' : isSelected ? '#ea580c' : '#0f172a';
+  const points = buildProfilePoints(element.start, profile.segments);
+  const polylinePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+
+  return (
+    <g key={element.id}>
+      <polyline points={polylinePoints} fill="none" stroke={stroke} strokeWidth={isSelected ? 3 : 2.4} strokeLinejoin="round" strokeLinecap="round" />
+      {profile.segments.map((segment, index) => {
+        const midpoint = getSegmentMidPoint(points, index);
+        const start = points[index];
+        const isHem = segment.bendType === 'hem';
+        return (
+          <g key={segment.id}>
+            {isHem ? <circle cx={midpoint.x} cy={midpoint.y} r={7} fill="none" stroke="#ea580c" strokeWidth={2} /> : null}
+            <text x={midpoint.x} y={midpoint.y - 8} textAnchor="middle" className="select-none text-[12px] font-bold" fill={isHem ? '#ea580c' : stroke}>
+              {segment.lengthMm} мм
+            </text>
+            <text x={start.x + 7} y={start.y + 16} className="select-none text-[11px] font-semibold" fill="#64748b">
+              {index > 0 ? `${segment.angleDeg}°` : getBendTitle(segment)}
+            </text>
+          </g>
+        );
+      })}
+      <text x={element.start.x} y={element.start.y - 18} className="select-none text-[14px] font-bold" fill={stroke}>
+        {profile.name} · {profile.segments.map((segment) => segment.lengthMm).join('×')} мм · L={profile.lengthMm} мм · {profile.quantity} шт
+      </text>
+    </g>
+  );
+}
+
+export function renderElement(element: DrawingElement, isPreview = false, isSelected = false) {
+  if (element.tool === 'profile') return renderProfile(element, isPreview, isSelected);
+
+  const isHemLine = element.tool === 'line' && element.bendType === 'hem';
+  const stroke = isPreview ? '#2563eb' : isSelected ? '#ea580c' : isHemLine ? '#dc2626' : '#0f172a';
   const commonProps = {
     stroke,
-    strokeWidth: element.tool === 'dimension' ? 1.6 : 2,
+    strokeWidth: element.tool === 'dimension' ? 1.6 : isSelected ? 3 : 2,
     fill: element.tool === 'rectangle' || element.tool === 'circle' ? 'rgba(15, 23, 42, 0.04)' : 'none',
-    strokeDasharray: isPreview ? '7 5' : element.tool === 'dimension' ? '4 4' : undefined,
+    strokeDasharray: isPreview ? '7 5' : element.tool === 'dimension' ? '4 4' : isHemLine ? '8 4' : undefined,
   };
 
   if (element.tool === 'line') {
-    return <line key={element.id} x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />;
+    const labelX = (element.start.x + element.end.x) / 2;
+    const labelY = (element.start.y + element.end.y) / 2 - 8;
+    const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
+    const label = isHemLine ? `Завальцовка ${element.hemSizeMm ?? length} мм` : `${length} мм`;
+    return (
+      <g key={element.id}>
+        <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
+        {isHemLine ? <line x1={element.start.x} y1={element.start.y + 5} x2={element.end.x} y2={element.end.y + 5} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 4" /> : null}
+        <text x={labelX} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+          {element.text || label}
+        </text>
+      </g>
+    );
   }
 
   if (element.tool === 'rectangle') {
@@ -86,10 +165,13 @@ export function DrawingCanvas({
   showGrid,
   elements,
   previewElement,
-  cursorPoint,
+  mousePoint,
+  snappedPoint,
+  selectedElementId,
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onSelectElement,
 }: DrawingCanvasProps) {
   const minorGridId = 'drawing-grid-minor';
   const majorGridId = 'drawing-grid-major';
@@ -118,17 +200,30 @@ export function DrawingCanvas({
           </pattern>
         </defs>
         {showGrid ? <rect width={width} height={height} fill={`url(#${majorGridId})`} /> : <rect width={width} height={height} fill="#fff" />}
-        <g>{elements.map((element) => renderElement(element))}</g>
+        <g>
+          {elements.map((element) => (
+            <g
+              key={element.id}
+              className="cursor-pointer"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                onSelectElement(element.id);
+              }}
+            >
+              {renderElement(element, false, selectedElementId === element.id)}
+            </g>
+          ))}
+        </g>
         {previewElement ? renderElement(previewElement, true) : null}
-        {cursorPoint ? (
+        {snappedPoint ? (
           <g>
-            <line x1={cursorPoint.x} y1={0} x2={cursorPoint.x} y2={height} stroke="#94a3b8" strokeDasharray="3 6" />
-            <line x1={0} y1={cursorPoint.y} x2={width} y2={cursorPoint.y} stroke="#94a3b8" strokeDasharray="3 6" />
+            <line x1={snappedPoint.x} y1={0} x2={snappedPoint.x} y2={height} stroke="#94a3b8" strokeDasharray="3 6" />
+            <line x1={0} y1={snappedPoint.y} x2={width} y2={snappedPoint.y} stroke="#94a3b8" strokeDasharray="3 6" />
+            <circle cx={snappedPoint.x} cy={snappedPoint.y} r={5} fill="#2563eb" opacity="0.65" />
           </g>
         ) : null}
+        {mousePoint ? <circle cx={mousePoint.x} cy={mousePoint.y} r={3} fill="#ea580c" /> : null}
       </svg>
     </div>
   );
 }
-
-export { renderElement };
