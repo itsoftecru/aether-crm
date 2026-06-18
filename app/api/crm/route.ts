@@ -252,6 +252,8 @@ function validateDrawingProduct(value: unknown) {
     profileElementId: requireString(record, 'profileElementId', 'Изделие чертежа'),
     profileFormula: requireString(record, 'profileFormula', 'Изделие чертежа'),
     ...validateProductProfile(record),
+    unfoldingMm: optionalNonNegativeNumber(record, 'unfoldingMm', 'Изделие чертежа'),
+    areaM2: optionalNonNegativeNumber(record, 'areaM2', 'Изделие чертежа'),
   };
 }
 
@@ -269,6 +271,9 @@ function validateDrawingData(value: unknown): DealFile['drawingData'] {
         end: validateDrawingPoint(elementRecord.end, 'Конечная точка элемента чертежа'),
         text: optionalString(elementRecord, 'text', 'Элемент чертежа'),
         profile: elementRecord.profile === undefined ? undefined : validateProductProfile(elementRecord.profile),
+        lengthMm: optionalNonNegativeNumber(elementRecord, 'lengthMm', 'Элемент чертежа'),
+        hemSizeMm: optionalNonNegativeNumber(elementRecord, 'hemSizeMm', 'Элемент чертежа'),
+        angleDeg: optionalNonNegativeNumber(elementRecord, 'angleDeg', 'Элемент чертежа'),
       };
     }),
     svg: requireString(record, 'svg', 'Чертёж файла сделки'),

@@ -54,6 +54,23 @@ function getSegmentMidPoint(points: DrawingPoint[], index: number): DrawingPoint
   return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
 }
 
+
+const LABEL_FONT_SIZE = 13;
+const LABEL_MIN_FONT_SIZE = 9;
+const LABEL_HORIZONTAL_PADDING = 10;
+const LABEL_VERTICAL_PADDING = 6;
+const LABEL_LINE_GAP = 10;
+
+function getReadableLabelMetrics(label: string, segmentLength: number) {
+  const estimatedTextWidth = Math.max(28, label.length * LABEL_FONT_SIZE * 0.62);
+  const maxWidthNearLine = Math.max(34, segmentLength - LABEL_LINE_GAP * 2);
+  const shouldMoveOutside = estimatedTextWidth + LABEL_HORIZONTAL_PADDING * 2 > maxWidthNearLine;
+  const fontSize = Math.max(LABEL_MIN_FONT_SIZE, Math.min(LABEL_FONT_SIZE, maxWidthNearLine / Math.max(label.length * 0.62, 1)));
+  const width = Math.max(42, label.length * fontSize * 0.62 + LABEL_HORIZONTAL_PADDING * 2);
+  const height = fontSize + LABEL_VERTICAL_PADDING * 2;
+  return { fontSize, width, height, offset: shouldMoveOutside ? 30 : 18 };
+}
+
 function getBendTitle(segment: ProfileSegment): string {
   if (segment.bendType === 'hem') return `Завальцовка ${segment.hemSizeMm || segment.lengthMm} мм`;
   if (segment.bendType === 'lock') return 'Замок';
@@ -112,17 +129,18 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
     const dx = element.end.x - element.start.x;
     const dy = element.end.y - element.start.y;
     const segmentLength = Math.max(1, Math.hypot(dx, dy));
-    const labelXOffset = (-dy / segmentLength) * 18;
-    const labelYOffset = (dx / segmentLength) * 18;
-    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
     const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
     const label = isHemLine ? `Завальцовка ${element.hemSizeMm ?? length} мм` : `${length} мм`;
+    const labelMetrics = getReadableLabelMetrics(element.text || label, segmentLength);
+    const labelXOffset = (-dy / segmentLength) * labelMetrics.offset;
+    const labelYOffset = (dx / segmentLength) * labelMetrics.offset;
+    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
     return (
       <g key={element.id}>
         <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
         {isHemLine ? <line x1={element.start.x} y1={element.start.y + 5} x2={element.end.x} y2={element.end.y + 5} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 4" /> : null}
-        <rect x={labelX + labelXOffset - 34} y={labelY - 17} width={68} height={22} rx={8} fill="white" stroke="#cbd5e1" />
-        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+        <rect x={labelX + labelXOffset - labelMetrics.width / 2} y={labelY - labelMetrics.height + 5} width={labelMetrics.width} height={labelMetrics.height} rx={8} fill="white" stroke="#cbd5e1" />
+        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={stroke}>
           {element.text || label}
         </text>
       </g>
@@ -163,18 +181,19 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
     const dx = element.end.x - element.start.x;
     const dy = element.end.y - element.start.y;
     const segmentLength = Math.max(1, Math.hypot(dx, dy));
-    const labelXOffset = (-dy / segmentLength) * 18;
-    const labelYOffset = (dx / segmentLength) * 18;
-    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
     const length = Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
+    const labelMetrics = getReadableLabelMetrics(element.text || `${length} мм`, segmentLength);
+    const labelXOffset = (-dy / segmentLength) * labelMetrics.offset;
+    const labelYOffset = (dx / segmentLength) * labelMetrics.offset;
+    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
 
     return (
       <g key={element.id}>
         <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
         <circle cx={element.start.x} cy={element.start.y} r={4} fill={stroke} />
         <circle cx={element.end.x} cy={element.end.y} r={4} fill={stroke} />
-        <rect x={labelX + labelXOffset - 34} y={labelY - 17} width={68} height={22} rx={8} fill="white" stroke="#cbd5e1" />
-        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
+        <rect x={labelX + labelXOffset - labelMetrics.width / 2} y={labelY - labelMetrics.height + 5} width={labelMetrics.width} height={labelMetrics.height} rx={8} fill="white" stroke="#cbd5e1" />
+        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={stroke}>
           {element.text || `${length} мм`}
         </text>
       </g>

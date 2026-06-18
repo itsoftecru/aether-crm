@@ -137,12 +137,48 @@ function getDirectedPoint(start: DrawingPoint, directionPoint: DrawingPoint, len
   return clampPoint({ x: start.x + (dx / distance) * lengthMm, y: start.y + (dy / distance) * lengthMm });
 }
 
-function getAngleBetweenElements(first: DrawingElement, second: DrawingElement): number {
-  const firstAngle = Math.atan2(first.end.y - first.start.y, first.end.x - first.start.x);
-  const secondAngle = Math.atan2(second.end.y - second.start.y, second.end.x - second.start.x);
+function getSharedEndpoint(first: DrawingElement, second: DrawingElement): DrawingPoint | null {
+  const candidates: Array<[DrawingPoint, DrawingPoint]> = [[first.start, second.start], [first.start, second.end], [first.end, second.start], [first.end, second.end]];
+  return candidates.find(([a, b]) => Math.hypot(a.x - b.x, a.y - b.y) <= SNAP_SIZE)?.[0] ?? null;
+}
+
+function getVectorFromVertex(element: DrawingElement, vertex: DrawingPoint): DrawingPoint {
+  const startDistance = Math.hypot(element.start.x - vertex.x, element.start.y - vertex.y);
+  const endDistance = Math.hypot(element.end.x - vertex.x, element.end.y - vertex.y);
+  const target = startDistance <= endDistance ? element.end : element.start;
+  return { x: target.x - vertex.x, y: target.y - vertex.y };
+}
+
+function getAngleBetweenElements(first: DrawingElement, second: DrawingElement, vertex = getSharedEndpoint(first, second)): number {
+  const firstVector = vertex ? getVectorFromVertex(first, vertex) : { x: first.end.x - first.start.x, y: first.end.y - first.start.y };
+  const secondVector = vertex ? getVectorFromVertex(second, vertex) : { x: second.end.x - second.start.x, y: second.end.y - second.start.y };
+  const firstAngle = Math.atan2(firstVector.y, firstVector.x);
+  const secondAngle = Math.atan2(secondVector.y, secondVector.x);
   const rawAngle = Math.abs(((secondAngle - firstAngle) * 180) / Math.PI);
   const normalized = rawAngle > 180 ? 360 - rawAngle : rawAngle;
   return Number(normalized.toFixed(1));
+}
+
+function createAngleElement(dealId: string, first: DrawingElement, second: DrawingElement): DrawingElement | null {
+  const vertex = getSharedEndpoint(first, second);
+  if (!vertex) return null;
+  const firstVector = getVectorFromVertex(first, vertex);
+  const secondVector = getVectorFromVertex(second, vertex);
+  const firstLength = Math.hypot(firstVector.x, firstVector.y);
+  const secondLength = Math.hypot(secondVector.x, secondVector.y);
+  if (firstLength < MIN_DRAW_DISTANCE || secondLength < MIN_DRAW_DISTANCE) return null;
+  const radius = Math.min(42, Math.max(22, Math.min(firstLength, secondLength) * 0.36));
+  const start = { x: vertex.x + (firstVector.x / firstLength) * radius, y: vertex.y + (firstVector.y / firstLength) * radius };
+  const end = { x: vertex.x + (secondVector.x / secondLength) * radius, y: vertex.y + (secondVector.y / secondLength) * radius };
+  const angle = getAngleBetweenElements(first, second, vertex);
+  return { id: `drawing-${dealId}-${Date.now()}-angle`, tool: 'angleDimension', start, end, angleDeg: angle, text: `${angle}°` };
+}
+
+function withAutomaticAngle(elements: DrawingElement[], dealId: string, element: DrawingElement): DrawingElement[] {
+  if (element.tool !== 'line' && element.tool !== 'hem') return [...elements, element];
+  const connected = [...elements].reverse().find((candidate) => (candidate.tool === 'line' || candidate.tool === 'hem') && getSharedEndpoint(candidate, element));
+  const angleElement = connected ? createAngleElement(dealId, connected, element) : null;
+  return angleElement ? [...elements, element, angleElement] : [...elements, element];
 }
 
 function createDrawingProducts(elements: DrawingElement[], draft: ProductSpecDraft): DrawingProduct[] {
@@ -153,7 +189,7 @@ function createDrawingProducts(elements: DrawingElement[], draft: ProductSpecDra
   return [
     {
       id: 'product-manual',
-      profileElementId: '',
+      profileElementId: 'manual-profile',
       profileFormula: getManualFormula(elements),
       name: draft.name || 'Изделие',
       segments: [],
@@ -227,6 +263,66 @@ function createSvgDocument(elements: DrawingElement[], title: string, products: 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT + specHeight}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT + specHeight}" role="img"><title>${escapeXml(title)}</title><rect width="100%" height="100%" fill="white"/><text x="30" y="32" font-size="20" font-weight="700" fill="#0f172a">${escapeXml(title)}</text><text x="30" y="54" font-size="12" fill="#475569">Дата: ${new Date().toLocaleString('ru-RU')} · Масштаб профилей: 1 мм = ${PROFILE_SCALE} px</text>${body}<line x1="20" y1="${CANVAS_HEIGHT + 24}" x2="${CANVAS_WIDTH - 20}" y2="${CANVAS_HEIGHT + 24}" stroke="#cbd5e1"/><text x="30" y="${CANVAS_HEIGHT + 44}" font-size="15" font-weight="700" fill="#0f172a">Спецификация изделий</text>${rows}</svg>`;
 }
 
+function encodePdfText(value: string): string {
+  const bytes = ['FE', 'FF'];
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 32;
+    bytes.push(((code >> 8) & 255).toString(16).padStart(2, '0').toUpperCase());
+    bytes.push((code & 255).toString(16).padStart(2, '0').toUpperCase());
+  }
+  return `<${bytes.join('')}>`;
+}
+
+function pdfY(y: number, pageHeight: number): number {
+  return Number((pageHeight - y).toFixed(2));
+}
+
+function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const scale = Math.min((pageWidth - 48) / CANVAS_WIDTH, (pageHeight - 96) / (CANVAS_HEIGHT + 90));
+  const commands: string[] = ['q', `${scale.toFixed(4)} 0 0 ${scale.toFixed(4)} 24 54 cm`, '1 1 1 rg 0 0 0 RG'];
+  commands.push('BT /F1 18 Tf 30 585 Td', `${encodePdfText(payload.title)} Tj`, 'ET');
+  for (const element of payload.elements) {
+    if (element.tool === 'line' || element.tool === 'hem' || element.tool === 'dimension') {
+      commands.push('0.06 0.09 0.16 RG', `${element.tool === 'dimension' ? '1.2' : '2'} w`, `${element.start.x.toFixed(2)} ${pdfY(element.start.y, CANVAS_HEIGHT + 90)} m ${element.end.x.toFixed(2)} ${pdfY(element.end.y, CANVAS_HEIGHT + 90)} l S`);
+      const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
+      const label = element.text || `${length} мм`;
+      commands.push('BT /F1 12 Tf', `${((element.start.x + element.end.x) / 2 - 18).toFixed(2)} ${pdfY((element.start.y + element.end.y) / 2 - 10, CANVAS_HEIGHT + 90)} Td`, `${encodePdfText(label)} Tj`, 'ET');
+    }
+    if (element.tool === 'rectangle') {
+      const x = Math.min(element.start.x, element.end.x);
+      const y = Math.min(element.start.y, element.end.y);
+      const width = Math.abs(element.end.x - element.start.x);
+      const height = Math.abs(element.end.y - element.start.y);
+      commands.push(`${x.toFixed(2)} ${pdfY(y + height, CANVAS_HEIGHT + 90)} ${width.toFixed(2)} ${height.toFixed(2)} re S`);
+    }
+    if (element.tool === 'angleDimension') {
+      commands.push('0.92 0.32 0.04 RG 1.4 w', `${element.start.x.toFixed(2)} ${pdfY(element.start.y, CANVAS_HEIGHT + 90)} m ${element.end.x.toFixed(2)} ${pdfY(element.end.y, CANVAS_HEIGHT + 90)} l S`);
+      commands.push('BT /F1 12 Tf', `${((element.start.x + element.end.x) / 2).toFixed(2)} ${pdfY((element.start.y + element.end.y) / 2, CANVAS_HEIGHT + 90)} Td`, `${encodePdfText(element.text || `${element.angleDeg ?? 0}°`)} Tj`, 'ET');
+    }
+    if (element.tool === 'text') {
+      commands.push('BT /F1 12 Tf', `${element.start.x.toFixed(2)} ${pdfY(element.start.y, CANVAS_HEIGHT + 90)} Td`, `${encodePdfText(element.text || 'Текст')} Tj`, 'ET');
+    }
+  }
+  commands.push('BT /F1 13 Tf 30 42 Td', `${encodePdfText(`Спецификация: ${payload.products.map((p) => `${p.name} ${p.profileFormula}`).join('; ')}`)} Tj`, 'ET', 'Q');
+  const stream = commands.join('\n');
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj`,
+    '4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj',
+    `5 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream endobj`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const object of objects) { offsets.push(pdf.length); pdf += `${object}\n`; }
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\n`;
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new TextEncoder().encode(pdf);
+}
+
 function createPayload(elements: DrawingElement[], title: string, productSpec: ProductSpecDraft): DrawingSavePayload {
   const products = createDrawingProducts(elements, productSpec);
   return { name: `${title}.svg`, elements, products, title, svg: createSvgDocument(elements, title, products) };
@@ -290,7 +386,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
     const text = window.prompt('Введите текстовую пометку для чертежа:', 'Пометка');
     if (!text || text.trim().length === 0) return;
     const element = { id: `drawing-${dealId}-${Date.now()}`, tool: 'text' as const, start: point, end: point, text: text.trim() };
-    commitElements((current) => [...current, element]);
+    commitElements((current) => withAutomaticAngle(current, dealId, element));
     setSelectedElementId(element.id);
   };
 
@@ -300,7 +396,10 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
       return;
     }
     const length = Math.round(Math.hypot(end.x - start.x, end.y - start.y));
-    setPreviewElement({ id: `preview-${activeTool}`, tool: activeTool, start, end, lengthMm: length, hemSizeMm: activeTool === 'hem' ? 15 : undefined, text: activeTool === 'dimension' ? `${length} мм` : undefined });
+    const previewBase: DrawingElement = { id: `preview-${activeTool}`, tool: activeTool, start, end, lengthMm: length, hemSizeMm: activeTool === 'hem' ? 15 : undefined, text: activeTool === 'dimension' ? `${length} мм` : undefined };
+    const connected = (activeTool === 'line' || activeTool === 'hem') ? [...elements].reverse().find((candidate) => (candidate.tool === 'line' || candidate.tool === 'hem') && getSharedEndpoint(candidate, previewBase)) : null;
+    const angle = connected ? createAngleElement(dealId, connected, previewBase)?.angleDeg : undefined;
+    setPreviewElement(angle === undefined ? previewBase : { ...previewBase, text: `${length} мм · ${angle}°` });
   };
 
   const selectElement = (elementId: string) => {
@@ -321,15 +420,8 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
       setSelectedElementId(elementId);
       return;
     }
-    const angle = getAngleBetweenElements(first, element);
-    const angleElement: DrawingElement = {
-      id: `drawing-${dealId}-${Date.now()}-angle`,
-      tool: 'angleDimension',
-      start: first.start,
-      end: element.start,
-      angleDeg: angle,
-      text: `${angle}°`,
-    };
+    const angleElement = createAngleElement(dealId, first, element);
+    if (!angleElement) return;
     commitElements((current) => [...current, angleElement]);
     setSelectedElementId(angleElement.id);
     setPendingAngleElementId(null);
@@ -343,7 +435,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
     const baseElement = buildElementFromPoints(dealId, activeTool, draftStart, finalEnd, elements.length);
     if (!baseElement) return;
     const element = explicitLength ? resizeElementToExactLength(baseElement, explicitLength) : baseElement;
-    commitElements((current) => [...current, element]);
+    commitElements((current) => withAutomaticAngle(current, dealId, element));
     setSelectedElementId(element.id);
     setDraftStart(null);
     setPreviewElement(null);
@@ -370,12 +462,19 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
 
   const exportPdf = useCallback(() => {
     const pdfPayload = createPayload(elements, title, productSpec);
-    const html = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeXml(pdfPayload.title)}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;font-family:Arial,sans-serif}.sheet{width:100%}svg{max-width:100%;height:auto}</style></head><body><main class="sheet">${pdfPayload.svg}</main><script>window.addEventListener('load',()=>{window.print();});</script></body></html>`;
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const pdfBytes = createPdfDocument(pdfPayload);
+    const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+    new Uint8Array(pdfBuffer).set(pdfBytes);
+    const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
-    const printWindow = window.open(url, '_blank', 'noopener,noreferrer');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-    if (!printWindow) onExportPdf?.(dealId, pdfPayload);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${pdfPayload.title.replace(/[^a-zа-яё0-9_-]+/giu, '_') || 'drawing'}.pdf`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    onExportPdf?.(dealId, pdfPayload);
   }, [dealId, elements, onExportPdf, productSpec, title]);
 
   useEffect(() => {
