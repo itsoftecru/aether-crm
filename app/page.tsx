@@ -54,17 +54,15 @@ import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import { crmRepository, INITIAL_CLIENTS, INITIAL_DEALS, INITIAL_DEAL_FILES, INITIAL_ACTIVITY_EVENTS } from '@/lib/crmRepository';
+import { crmRepository, INITIAL_CLIENTS, INITIAL_DEALS, INITIAL_DEAL_FILES, INITIAL_ACTIVITY_EVENTS, INITIAL_SETTINGS } from '@/lib/crmRepository';
 import {
-  DEAL_COST_CATEGORIES,
-  DEAL_COST_CATEGORY_TITLES,
   calculateDealCostItemTotal,
   calculateDealExpenses,
   calculateDealMarginPercent,
   calculateDealNetProfit,
   createEmptyDealFinancials,
 } from '@/lib/dealFinancials';
-import type { ActivityEvent, Client, Deal, DealCostCategory, DealCostItem, DealFile, DealFinancials, DealStatus, DocumentKind, DrawingElement, Reminder, ReminderPriority } from '@/types/crm';
+import type { ActivityEvent, Client, CostCategoryConfig, CrmSettings, Deal, DealCostCategory, DealCostItem, DealFile, DealFinancials, DealStatus, DealStatusConfig, DocumentKind, DocumentTemplateConfig, DrawingElement, Reminder, ReminderPriority, TeamMember } from '@/types/crm';
 
 type ActiveSection = 'home' | 'clients' | 'deals' | 'drawings' | 'files' | 'settings';
 
@@ -244,27 +242,18 @@ function normalizeDealFormValues(values: DealFormValues): DealFormValues {
   };
 }
 
-function validateDealForm(values: DealFormValues, clients: Client[]): string | null {
+function validateDealForm(values: DealFormValues, clients: Client[], enabledStatuses: DealStatus[]): string | null {
   const normalizedValues = normalizeDealFormValues(values);
 
   if (!normalizedValues.title) return 'Укажите название сделки.';
   if (!normalizedValues.clientId || !clients.some((client) => client.id === normalizedValues.clientId)) return 'Выберите клиента из базы.';
-  if (!DEAL_STATUSES.includes(normalizedValues.status)) return 'Выберите корректный статус сделки.';
+  if (!enabledStatuses.includes(normalizedValues.status)) return 'Выберите корректный статус сделки.';
   if (!normalizedValues.owner) return 'Укажите ответственного менеджера.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedValues.dueDate)) return 'Укажите плановый срок в формате даты.';
   if (normalizedValues.revenueAmount <= 0) return 'Укажите положительную выручку сделки.';
 
   return null;
 }
-
-const DEAL_STATUSES: DealStatus[] = ['lead', 'specApproval', 'inProgress', 'done'];
-
-const STATUS_TITLES: Record<DealStatus, string> = {
-  lead: 'Обращение',
-  specApproval: 'Согласование ТЗ',
-  inProgress: 'В работе',
-  done: 'Выполнено',
-};
 
 const NAVIGATION_ITEMS: NavigationItem[] = [
   { id: 'home', title: 'Главная', icon: Home },
@@ -291,14 +280,6 @@ const DOCUMENT_TITLES: Record<DocumentKind, string> = DOCUMENT_BUTTONS.reduce(
   {} as Record<DocumentKind, string>,
 );
 
-const statusStyles: Record<DealStatus, string> = {
-  lead: 'border-slate-200 bg-slate-100 text-slate-700',
-  specApproval: 'border-orange-200 bg-orange-50 text-orange-700',
-  inProgress: 'border-blue-200 bg-blue-50 text-blue-700',
-  done: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-};
-
-
 
 function toDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -319,23 +300,23 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
-const moneyFormatter = new Intl.NumberFormat('ru-RU', {
-  style: 'currency',
-  currency: 'RUB',
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
-
-function formatMoney(amount: number): string {
-  return moneyFormatter.format(Number(amount) || 0);
+function formatMoney(amount: number, moneySettings = INITIAL_SETTINGS.money): string {
+  const roundingIncrement = Math.max(1, Number(moneySettings.roundingIncrement) || 1);
+  const roundedAmount = Math.round((Number(amount) || 0) / roundingIncrement) * roundingIncrement;
+  return new Intl.NumberFormat(moneySettings.locale, {
+    style: 'currency',
+    currency: moneySettings.currency,
+    minimumFractionDigits: moneySettings.minimumFractionDigits,
+    maximumFractionDigits: moneySettings.maximumFractionDigits,
+  }).format(roundedAmount);
 }
 
 function formatPercent(value: number): string {
   return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
-function normalizeDealFinancials(financials?: Partial<DealFinancials>): DealFinancials {
-  return DEAL_COST_CATEGORIES.reduce((result, category) => ({
+function normalizeDealFinancials(financials?: Partial<DealFinancials>, categories = INITIAL_SETTINGS.costCategories): DealFinancials {
+  return categories.map((category) => category.id).reduce((result, category) => ({
     ...result,
     [category]: financials?.[category] ?? [],
   }), {} as DealFinancials);
@@ -362,8 +343,9 @@ function formatDate(value: string): string {
 }
 
 
-function generateDocumentText(deal: Deal, client: Client, kind: DocumentKind): string {
-  const documentTitle = DOCUMENT_TITLES[kind];
+function generateDocumentText(deal: Deal, client: Client, kind: DocumentKind, settings: CrmSettings, statusTitles: Record<DealStatus, string>): string {
+  const template = settings.documentTemplates.find((documentTemplate) => documentTemplate.id === kind);
+  const documentTitle = template?.title ?? DOCUMENT_TITLES[kind];
   const generatedAt = new Intl.DateTimeFormat('ru-RU', {
     day: '2-digit',
     month: '2-digit',
@@ -387,21 +369,29 @@ function generateDocumentText(deal: Deal, client: Client, kind: DocumentKind): s
     '',
     'Данные сделки',
     `Название: ${deal.title}`,
-    `Статус: ${STATUS_TITLES[deal.status]}`,
+    `Статус: ${statusTitles[deal.status] ?? deal.status}`,
     `Ответственный: ${deal.owner}`,
     `Дата создания: ${deal.createdAt}`,
     `Плановый срок: ${deal.dueDate}`,
-    `Выручка: ${formatMoney(deal.revenueAmount)}`,
+    `Выручка: ${formatMoney(deal.revenueAmount, settings.money)}`,
     '',
     'Описание и примечания',
     deal.notes,
+    '',
+    'Реквизиты компании',
+    `Компания: ${settings.company.legalName}`,
+    `ИНН/КПП: ${settings.company.inn} / ${settings.company.kpp}`,
+    `Банк: ${settings.company.bankName}, БИК ${settings.company.bik}`,
+    `Расчётный счёт: ${settings.company.checkingAccount}`,
+    '',
+    template?.body.replaceAll('{{dealTitle}}', deal.title).replaceAll('{{clientName}}', client.name).replaceAll('{{revenue}}', formatMoney(deal.revenueAmount, settings.money)).replaceAll('{{dealId}}', deal.id).replaceAll('{{companyLegalName}}', settings.company.legalName) ?? '',
     '',
     'Документ сформирован автоматически в AetherCRM.',
   ].join('\n');
 }
 
-function groupDealsByStatus(deals: Deal[]): Record<DealStatus, Deal[]> {
-  return DEAL_STATUSES.reduce(
+function groupDealsByStatus(deals: Deal[], statuses: DealStatus[]): Record<DealStatus, Deal[]> {
+  return statuses.reduce(
     (accumulator, status) => ({
       ...accumulator,
       [status]: deals.filter((deal) => deal.status === status),
@@ -410,8 +400,8 @@ function groupDealsByStatus(deals: Deal[]): Record<DealStatus, Deal[]> {
   );
 }
 
-function flattenColumns(columns: Record<DealStatus, Deal[]>): Deal[] {
-  return DEAL_STATUSES.flatMap((status) => columns[status]);
+function flattenColumns(columns: Record<DealStatus, Deal[]>, statuses: DealStatus[]): Deal[] {
+  return statuses.flatMap((status) => columns[status] ?? []);
 }
 
 function reorderColumn(items: Deal[], startIndex: number, endIndex: number): Deal[] {
@@ -531,6 +521,8 @@ export default function HomePage() {
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_EVENTS);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [settings, setSettings] = useState<CrmSettings>(INITIAL_SETTINGS);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [reminderFilter, setReminderFilter] = useState<ReminderFilter>('today');
   const [reminderFormContext, setReminderFormContext] = useState<{ clientId: string; dealId: string } | null>(null);
   const [reminderFormValues, setReminderFormValues] = useState<ReminderFormValues>(EMPTY_REMINDER_FORM);
@@ -547,18 +539,23 @@ export default function HomePage() {
   const objectUrlsRef = useRef<string[]>([]);
 
   const normalizedSearchQuery = searchQuery.toLowerCase().trim();
-
+  const enabledDealStatuses = useMemo(() => settings.dealStatuses.filter((status) => status.isActive).sort((a, b) => a.sortOrder - b.sortOrder).map((status) => status.id), [settings.dealStatuses]);
+  const statusTitles = useMemo(() => settings.dealStatuses.reduce((result, status) => ({ ...result, [status.id]: status.title }), {} as Record<DealStatus, string>), [settings.dealStatuses]);
+  const statusStyles = useMemo(() => settings.dealStatuses.reduce((result, status) => ({ ...result, [status.id]: status.colorClassName }), {} as Record<DealStatus, string>), [settings.dealStatuses]);
+  const enabledCostCategories = useMemo(() => settings.costCategories.filter((category) => category.isActive).sort((a, b) => a.sortOrder - b.sortOrder), [settings.costCategories]);
+  const activeDocumentTemplates = useMemo(() => settings.documentTemplates.filter((template) => template.isActive), [settings.documentTemplates]);
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadCrmData() {
-      const [loadedClients, loadedDeals, loadedFiles, loadedEvents, loadedReminders] = await Promise.all([
+      const [loadedClients, loadedDeals, loadedFiles, loadedEvents, loadedReminders, loadedSettings] = await Promise.all([
         crmRepository.getClients(),
         crmRepository.getDeals(),
         crmRepository.getDealFiles(),
         crmRepository.getActivityEvents(),
         crmRepository.getReminders(),
+        crmRepository.getSettings(),
       ]);
 
       if (!isMounted) {
@@ -570,6 +567,7 @@ export default function HomePage() {
       setDealFiles(loadedFiles);
       setActivityEvents(loadedEvents);
       setReminders(loadedReminders);
+      setSettings(loadedSettings);
       setSelectedClientId((currentClientId) => loadedClients.some((client) => client.id === currentClientId) ? currentClientId : loadedClients[0]?.id ?? currentClientId);
     }
 
@@ -604,7 +602,7 @@ export default function HomePage() {
     );
   }, [deals, normalizedSearchQuery]);
 
-  const columns = useMemo(() => groupDealsByStatus(filteredDeals), [filteredDeals]);
+  const columns = useMemo(() => groupDealsByStatus(filteredDeals, enabledDealStatuses), [enabledDealStatuses, filteredDeals]);
   const allDeals = filteredDeals;
   const hasSearchQuery = normalizedSearchQuery.length > 0;
   const hasSearchResults = filteredClients.length > 0 || filteredDeals.length > 0;
@@ -706,7 +704,7 @@ export default function HomePage() {
     const documentConfig = DOCUMENT_BUTTONS.find((document) => document.kind === kind);
     const documentTitle = documentConfig?.title ?? DOCUMENT_TITLES[kind];
     const fileName = `${documentConfig?.filePrefix ?? documentTitle}_${deal.id}.txt`;
-    const text = generateDocumentText(deal, client, kind);
+    const text = generateDocumentText(deal, client, kind, settings, statusTitles);
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const generatedAt = new Date().toISOString();
     const timestamp = Date.now();
@@ -731,7 +729,7 @@ export default function HomePage() {
     await crmRepository.addActivityEvent(event);
     setDealFiles((currentFiles) => [savedFile, ...currentFiles]);
     setActivityEvents((currentEvents) => [event, ...currentEvents]);
-  }, [clients, dealFiles]);
+  }, [clients, dealFiles, settings, statusTitles]);
 
   const handleDrawingSave = useCallback(
     async (dealId: string, drawing: { name: string; elements: DrawingElement[]; svg: string }) => {
@@ -785,7 +783,7 @@ export default function HomePage() {
     const sourceStatus = source.droppableId as DealStatus;
     const destinationStatus = destination.droppableId as DealStatus;
 
-    if (!DEAL_STATUSES.includes(sourceStatus) || !DEAL_STATUSES.includes(destinationStatus)) {
+    if (!enabledDealStatuses.includes(sourceStatus) || !enabledDealStatuses.includes(destinationStatus)) {
       return;
     }
 
@@ -798,13 +796,13 @@ export default function HomePage() {
     }
 
     setDeals((currentDeals) => {
-      const currentColumns = groupDealsByStatus(currentDeals);
+      const currentColumns = groupDealsByStatus(currentDeals, enabledDealStatuses);
 
       if (sourceStatus === destinationStatus) {
         const reorderedDeals = flattenColumns({
           ...currentColumns,
           [sourceStatus]: reorderColumn(currentColumns[sourceStatus], source.index, destination.index),
-        });
+        }, enabledDealStatuses);
         void crmRepository.replaceDeals(reorderedDeals);
         return reorderedDeals;
       }
@@ -824,7 +822,7 @@ export default function HomePage() {
           dealId: movedDeal.id,
           timestamp: new Date().toISOString(),
           type: 'statusChanged',
-          message: `Статус изменён: «${STATUS_TITLES[sourceStatus]}» → «${STATUS_TITLES[destinationStatus]}».`,
+          message: `Статус изменён: «${statusTitles[sourceStatus] ?? sourceStatus}» → «${statusTitles[destinationStatus] ?? destinationStatus}».`,
         };
         void crmRepository.addActivityEvent(event);
         void crmRepository.updateDealStatus(movedDeal.id, destinationStatus);
@@ -835,7 +833,7 @@ export default function HomePage() {
         ...currentColumns,
         [sourceStatus]: moved.source,
         [destinationStatus]: moved.destination,
-      });
+      }, enabledDealStatuses);
       void crmRepository.replaceDeals(movedDeals);
       return movedDeals;
     });
@@ -1014,7 +1012,7 @@ export default function HomePage() {
 
   const handleDealFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const validationError = validateDealForm(dealFormValues, clients);
+    const validationError = validateDealForm(dealFormValues, clients, enabledDealStatuses);
 
     if (validationError) {
       setDealFormError(validationError);
@@ -1067,7 +1065,7 @@ export default function HomePage() {
       setDeals((currentDeals) => currentDeals.map((deal) => deal.id === updatedDeal.id ? updatedDeal : deal));
       closeDealForm();
     }
-  }, [clients, closeDealForm, dealFormMode, dealFormValues, editingDealId]);
+  }, [clients, closeDealForm, dealFormMode, dealFormValues, editingDealId, enabledDealStatuses]);
 
   const handleDeleteDeal = useCallback(async (deal: Deal) => {
     const isConfirmed = window.confirm(`Удалить сделку «${deal.title}»? Связанные файлы и события активности будут удалены.`);
@@ -1162,6 +1160,54 @@ export default function HomePage() {
       reminder.id === completedReminder.id ? completedReminder : reminder
     )));
   }, []);
+
+
+  const saveSettings = useCallback(async (nextSettings: CrmSettings) => {
+    const savedSettings = await crmRepository.updateSettings(nextSettings);
+    setSettings(savedSettings);
+    setSettingsMessage('Настройки сохранены. Новые значения применены в сделках, документах и финансовых формах.');
+  }, []);
+
+  const updateTeamMember = useCallback((memberId: string, patch: Partial<TeamMember>) => {
+    const nextSettings = {
+      ...settings,
+      teamMembers: settings.teamMembers.map((member) => member.id === memberId ? { ...member, ...patch } : member),
+    };
+    void saveSettings(nextSettings);
+  }, [saveSettings, settings]);
+
+  const addTeamMember = useCallback(() => {
+    void saveSettings({
+      ...settings,
+      teamMembers: [...settings.teamMembers, { id: `team-${Date.now()}`, name: 'Новый сотрудник', role: 'Менеджер', email: '', phone: '', isActive: true }],
+    });
+  }, [saveSettings, settings]);
+
+  const updateDealStatusConfig = useCallback((statusId: DealStatus, patch: Partial<DealStatusConfig>) => {
+    void saveSettings({ ...settings, dealStatuses: settings.dealStatuses.map((status) => status.id === statusId ? { ...status, ...patch } : status) });
+  }, [saveSettings, settings]);
+
+  const updateCostCategoryConfig = useCallback((categoryId: DealCostCategory, patch: Partial<CostCategoryConfig>) => {
+    void saveSettings({ ...settings, costCategories: settings.costCategories.map((category) => category.id === categoryId ? { ...category, ...patch } : category) });
+  }, [saveSettings, settings]);
+
+  const updateDocumentTemplateConfig = useCallback((templateId: DocumentKind, patch: Partial<DocumentTemplateConfig>) => {
+    void saveSettings({ ...settings, documentTemplates: settings.documentTemplates.map((template) => template.id === templateId ? { ...template, ...patch } : template) });
+  }, [saveSettings, settings]);
+
+  const updateCompanyField = useCallback((field: keyof CrmSettings['company'], value: string) => {
+    void saveSettings({ ...settings, company: { ...settings.company, [field]: value } });
+  }, [saveSettings, settings]);
+
+  const updateMoneyField = useCallback((field: keyof CrmSettings['money'], value: string | boolean) => {
+    void saveSettings({
+      ...settings,
+      money: {
+        ...settings.money,
+        [field]: typeof value === 'boolean' ? value : Math.max(0, Number(value) || 0),
+      },
+    });
+  }, [saveSettings, settings]);
 
   const handleDeleteClient = useCallback(async (client: Client) => {
     const relatedDeals = deals.filter((deal) => deal.clientId === client.id);
@@ -1264,7 +1310,7 @@ export default function HomePage() {
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase text-slate-500">Портфель</p>
-                  <p className="text-2xl font-bold text-slate-950">{formatMoney(totalValue)}</p>
+                  <p className="text-2xl font-bold text-slate-950">{formatMoney(totalValue, settings.money)}</p>
                 </div>
                 <section className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 sm:col-span-2 xl:col-span-1" aria-label="Уведомления">
                   <div className="mb-3 flex items-center justify-between gap-3">
@@ -1313,7 +1359,7 @@ export default function HomePage() {
                               <p className="font-semibold text-slate-950">{deal.title}</p>
                               <p className="mt-1">Клиент: {deal.client}</p>
                               <p className="mt-1">Срок: {formatDate(deal.dueDate)}</p>
-                              <p className="mt-1">Статус: {STATUS_TITLES[deal.status]}</p>
+                              <p className="mt-1">Статус: {statusTitles[deal.status] ?? deal.status}</p>
                             </li>
                           ))}
                         </ul>
@@ -1414,7 +1460,7 @@ export default function HomePage() {
               <Card>
                 <CardHeader>
                   <CardDescription className="font-semibold uppercase tracking-[0.18em]">Портфель</CardDescription>
-                  <CardTitle className="text-4xl">{formatMoney(totalValue)}</CardTitle>
+                  <CardTitle className="text-4xl">{formatMoney(totalValue, settings.money)}</CardTitle>
                 </CardHeader>
                 <CardContent><p className="text-sm text-slate-500">Суммарная стоимость сделок.</p></CardContent>
               </Card>
@@ -1598,10 +1644,10 @@ export default function HomePage() {
                               <p className="mt-1 text-slate-500">Создано: {deal.createdAt} · Срок: {deal.dueDate}</p>
                             </div>
                             <Badge variant="outline" className={`shrink-0 ${statusStyles[deal.status]}`}>
-                              {STATUS_TITLES[deal.status]}
+                              {statusTitles[deal.status] ?? deal.status}
                             </Badge>
                           </div>
-                          <p className="mt-2 font-bold text-slate-950">{formatMoney(deal.revenueAmount)}</p>
+                          <p className="mt-2 font-bold text-slate-950">{formatMoney(deal.revenueAmount, settings.money)}</p>
                         </div>
                       ))}
                     </div>
@@ -1682,8 +1728,8 @@ export default function HomePage() {
                       ))}
                     </select>
                     <select value={dealFormValues.status} onChange={(event) => updateDealFormField('status', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
-                      {DEAL_STATUSES.map((status) => (
-                        <option key={status} value={status}>{STATUS_TITLES[status]}</option>
+                      {enabledDealStatuses.map((status) => (
+                        <option key={status} value={status}>{statusTitles[status] ?? status}</option>
                       ))}
                     </select>
                     <Input value={dealFormValues.owner} onChange={(event) => updateDealFormField('owner', event.target.value)} placeholder="Ответственный *" />
@@ -1699,15 +1745,17 @@ export default function HomePage() {
                         <p className="text-sm text-slate-600">Добавляйте несколько строк внутри каждой категории сметы.</p>
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-950">
-                        Итого расходов: {formatMoney(calculateDealExpenses(dealFormValues.financials))}
+                        Итого расходов: {formatMoney(calculateDealExpenses(dealFormValues.financials), settings.money)}
                       </div>
                     </div>
                     <div className="space-y-4">
-                      {DEAL_COST_CATEGORIES.map((category) => (
+                      {enabledCostCategories.map((categoryConfig) => {
+                        const category = categoryConfig.id;
+                        return (
                         <div key={category} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
                           <div className="mb-3 flex items-center justify-between gap-3">
                             <div>
-                              <p className="font-semibold text-slate-950">{DEAL_COST_CATEGORY_TITLES[category]}</p>
+                              <p className="font-semibold text-slate-950">{categoryConfig.title}</p>
                               <p className="text-xs text-slate-500">{dealFormValues.financials[category].length} строк расходов</p>
                             </div>
                             <Button type="button" variant="outline" size="sm" onClick={() => addDealCostItem(category)}>
@@ -1723,7 +1771,7 @@ export default function HomePage() {
                                   <>
                                     <Input type="number" min="0" step="0.1" value={item.hours ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hours: Number(event.target.value) || 0 })} placeholder="Часы" className="md:col-span-2" />
                                     <Input type="number" min="0" step="0.01" value={item.hourlyRate ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hourlyRate: Number(event.target.value) || 0 })} placeholder="Ставка, ₽/ч" className="md:col-span-2" />
-                                    <Input value={formatMoney(calculateDealCostItemTotal(item))} readOnly className="md:col-span-2" />
+                                    <Input value={formatMoney(calculateDealCostItemTotal(item), settings.money)} readOnly className="md:col-span-2" />
                                   </>
                                 ) : (
                                   <Input type="number" min="0" step="0.01" value={item.amount || ''} onChange={(event) => updateDealCostItem(category, item.id, { amount: Number(event.target.value) || 0 })} placeholder="Сумма, ₽" className="md:col-span-3" />
@@ -1736,7 +1784,8 @@ export default function HomePage() {
                             ))}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                   {dealFormValues.clientId ? (
@@ -1757,15 +1806,15 @@ export default function HomePage() {
             <div className="overflow-x-auto">
             <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleKanbanDragEnd}>
               <div className="grid min-w-[1120px] grid-cols-4 gap-5">
-                {DEAL_STATUSES.map((status) => (
+                {enabledDealStatuses.map((status) => (
                   <section key={status} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="mb-4 flex items-center justify-between">
                       <div>
-                        <h2 className="font-bold text-slate-950">{STATUS_TITLES[status]}</h2>
+                        <h2 className="font-bold text-slate-950">{statusTitles[status] ?? status}</h2>
                         <p className="text-sm text-slate-500">{columns[status].length} карточек</p>
                       </div>
                       <Badge variant="outline" className={statusStyles[status]}>
-                        {STATUS_TITLES[status]}
+                        {statusTitles[status] ?? status}
                       </Badge>
                     </div>
 
@@ -1849,7 +1898,7 @@ export default function HomePage() {
                                         <Wrench className="h-4 w-4" />
                                         Статус
                                       </dt>
-                                      <dd className="font-medium text-slate-900">{STATUS_TITLES[deal.status]}</dd>
+                                      <dd className="font-medium text-slate-900">{statusTitles[deal.status] ?? deal.status}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt className="flex items-center gap-2">
@@ -1870,15 +1919,15 @@ export default function HomePage() {
                                         <CircleDollarSign className="h-4 w-4" />
                                         Выручка
                                       </dt>
-                                      <dd className="font-bold text-slate-950">{formatMoney(deal.revenueAmount)}</dd>
+                                      <dd className="font-bold text-slate-950">{formatMoney(deal.revenueAmount, settings.money)}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt>Расходы</dt>
-                                      <dd className="font-medium text-slate-900">{formatMoney(calculateDealExpenses(deal.financials))}</dd>
+                                      <dd className="font-medium text-slate-900">{formatMoney(calculateDealExpenses(deal.financials), settings.money)}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt>Чистая прибыль</dt>
-                                      <dd className="font-medium text-emerald-700">{formatMoney(calculateDealNetProfit(deal.revenueAmount, deal.financials))}</dd>
+                                      <dd className="font-medium text-emerald-700">{formatMoney(calculateDealNetProfit(deal.revenueAmount, deal.financials), settings.money)}</dd>
                                     </div>
                                     <div className="flex items-center justify-between gap-3">
                                       <dt>Маржинальность</dt>
@@ -1920,14 +1969,14 @@ export default function HomePage() {
                                         <FileText className="h-5 w-5 text-slate-400" />
                                       </div>
                                       <div className="grid grid-cols-2 gap-2">
-                                        {DOCUMENT_BUTTONS.map((document) => (
+                                        {activeDocumentTemplates.map((document) => (
                                           <button
-                                            key={document.kind}
+                                            key={document.id}
                                             type="button"
-                                            onClick={() => handleGenerateDocument(deal, document.kind)}
+                                            onClick={() => handleGenerateDocument(deal, document.id)}
                                             className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-950"
                                           >
-                                            {document.label}
+                                            {document.filePrefix}
                                           </button>
                                         ))}
                                       </div>
@@ -1990,13 +2039,22 @@ export default function HomePage() {
           ) : null}
 
           {activeSection === 'settings' ? (
-          <section className="flex-1 px-5 py-6 sm:px-8">
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
-              <Settings className="mx-auto h-10 w-10 text-slate-400" />
-              <h2 className="mt-4 text-2xl font-bold text-slate-950">Настройки появятся позже</h2>
-              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-500">
-                MVP-раздел для будущих настроек команды, статусов, шаблонов документов и прав доступа.
-              </p>
+          <section className="flex-1 space-y-5 px-5 py-6 sm:px-8">
+            {settingsMessage ? <p className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{settingsMessage}</p> : null}
+            <div className="grid gap-5 xl:grid-cols-2">
+              <Card><CardHeader><CardTitle>Менеджеры и роли</CardTitle><CardDescription>Список ответственных сотрудников для сделок и напоминаний.</CardDescription></CardHeader><CardContent className="space-y-3">
+                {settings.teamMembers.map((member) => <div key={member.id} className="grid gap-2 rounded-2xl border border-slate-200 p-3 md:grid-cols-2"><Input value={member.name} onChange={(event) => updateTeamMember(member.id, { name: event.target.value })} placeholder="Имя" /><Input value={member.role} onChange={(event) => updateTeamMember(member.id, { role: event.target.value })} placeholder="Роль" /><Input value={member.email} onChange={(event) => updateTeamMember(member.id, { email: event.target.value })} placeholder="Email" /><Input value={member.phone} onChange={(event) => updateTeamMember(member.id, { phone: event.target.value })} placeholder="Телефон" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={member.isActive} onChange={(event) => updateTeamMember(member.id, { isActive: event.target.checked })} /> Активен</label></div>)}
+                <Button type="button" variant="outline" onClick={addTeamMember}><Plus className="h-4 w-4" /> Добавить менеджера</Button>
+              </CardContent></Card>
+              <Card><CardHeader><CardTitle>Статусы сделок</CardTitle><CardDescription>Названия, порядок и визуальный стиль канбан-колонок.</CardDescription></CardHeader><CardContent className="space-y-3">
+                {settings.dealStatuses.map((status) => <div key={status.id} className="grid gap-2 rounded-2xl border border-slate-200 p-3 md:grid-cols-[1fr_120px]"><Input value={status.title} onChange={(event) => updateDealStatusConfig(status.id, { title: event.target.value })} /><Input type="number" value={status.sortOrder} onChange={(event) => updateDealStatusConfig(status.id, { sortOrder: Number(event.target.value) || 0 })} /><Input value={status.colorClassName} onChange={(event) => updateDealStatusConfig(status.id, { colorClassName: event.target.value })} className="md:col-span-2" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={status.isActive} onChange={(event) => updateDealStatusConfig(status.id, { isActive: event.target.checked })} /> Активен</label></div>)}
+              </CardContent></Card>
+              <Card><CardHeader><CardTitle>Категории расходов</CardTitle><CardDescription>Категории сметы, доступные в форме сделки.</CardDescription></CardHeader><CardContent className="space-y-3">
+                {settings.costCategories.map((category) => <div key={category.id} className="grid gap-2 rounded-2xl border border-slate-200 p-3 md:grid-cols-[1fr_120px]"><Input value={category.title} onChange={(event) => updateCostCategoryConfig(category.id, { title: event.target.value })} /><Input type="number" value={category.sortOrder} onChange={(event) => updateCostCategoryConfig(category.id, { sortOrder: Number(event.target.value) || 0 })} /><Input value={category.description} onChange={(event) => updateCostCategoryConfig(category.id, { description: event.target.value })} className="md:col-span-2" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={category.isActive} onChange={(event) => updateCostCategoryConfig(category.id, { isActive: event.target.checked })} /> Активна</label></div>)}
+              </CardContent></Card>
+              <Card><CardHeader><CardTitle>Деньги и округление</CardTitle><CardDescription>Формат сумм в карточках, сметах и документах.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-2"><Input type="number" value={settings.money.minimumFractionDigits} onChange={(event) => updateMoneyField('minimumFractionDigits', event.target.value)} placeholder="Мин. знаков" /><Input type="number" value={settings.money.maximumFractionDigits} onChange={(event) => updateMoneyField('maximumFractionDigits', event.target.value)} placeholder="Макс. знаков" /><Input type="number" value={settings.money.roundingIncrement} onChange={(event) => updateMoneyField('roundingIncrement', event.target.value)} placeholder="Шаг округления" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={settings.money.applyRoundingToDocuments} onChange={(event) => updateMoneyField('applyRoundingToDocuments', event.target.checked)} /> Округлять в документах</label></CardContent></Card>
+              <Card><CardHeader><CardTitle>Реквизиты компании</CardTitle><CardDescription>Используются при генерации документов.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{(Object.keys(settings.company) as Array<keyof CrmSettings['company']>).map((field) => <Input key={field} value={settings.company[field]} onChange={(event) => updateCompanyField(field, event.target.value)} placeholder={field} />)}</CardContent></Card>
+              <Card><CardHeader><CardTitle>Шаблоны документов</CardTitle><CardDescription>Тексты поддерживают переменные dealTitle, clientName, revenue, dealId, companyLegalName.</CardDescription></CardHeader><CardContent className="space-y-3">{settings.documentTemplates.map((template) => <div key={template.id} className="space-y-2 rounded-2xl border border-slate-200 p-3"><div className="grid gap-2 md:grid-cols-2"><Input value={template.title} onChange={(event) => updateDocumentTemplateConfig(template.id, { title: event.target.value })} /><Input value={template.filePrefix} onChange={(event) => updateDocumentTemplateConfig(template.id, { filePrefix: event.target.value })} /></div><textarea value={template.body} onChange={(event) => updateDocumentTemplateConfig(template.id, { body: event.target.value })} className="min-h-24 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={template.isActive} onChange={(event) => updateDocumentTemplateConfig(template.id, { isActive: event.target.checked })} /> Активен</label></div>)}</CardContent></Card>
             </div>
           </section>
           ) : null}

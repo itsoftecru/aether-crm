@@ -9,6 +9,71 @@ export type DealCostCategory =
   | 'painting'
   | 'other';
 
+
+export type TeamMember = {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+  isActive: boolean;
+};
+
+export type DealStatusConfig = {
+  id: DealStatus;
+  title: string;
+  colorClassName: string;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+export type CostCategoryConfig = {
+  id: DealCostCategory;
+  title: string;
+  description: string;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+export type DocumentTemplateConfig = {
+  id: DocumentKind;
+  title: string;
+  filePrefix: string;
+  body: string;
+  isActive: boolean;
+};
+
+export type MoneySettings = {
+  currency: 'RUB';
+  locale: 'ru-RU';
+  minimumFractionDigits: number;
+  maximumFractionDigits: number;
+  roundingIncrement: number;
+  applyRoundingToDocuments: boolean;
+};
+
+export type CrmSettings = {
+  teamMembers: TeamMember[];
+  dealStatuses: DealStatusConfig[];
+  costCategories: CostCategoryConfig[];
+  money: MoneySettings;
+  company: {
+    name: string;
+    legalName: string;
+    inn: string;
+    kpp: string;
+    ogrn: string;
+    address: string;
+    bankName: string;
+    bik: string;
+    checkingAccount: string;
+    correspondentAccount: string;
+    phone: string;
+    email: string;
+  };
+  documentTemplates: DocumentTemplateConfig[];
+};
+
 export type DealCostItem = {
   id: string;
   category: DealCostCategory;
