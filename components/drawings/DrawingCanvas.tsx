@@ -57,18 +57,31 @@ function getSegmentMidPoint(points: DrawingPoint[], index: number): DrawingPoint
 
 const LABEL_FONT_SIZE = 13;
 const LABEL_MIN_FONT_SIZE = 9;
-const LABEL_HORIZONTAL_PADDING = 10;
-const LABEL_VERTICAL_PADDING = 6;
 const LABEL_LINE_GAP = 10;
+const DIMENSION_STROKE = '#2563eb';
+const ANGLE_STROKE = '#ea580c';
 
 function getReadableLabelMetrics(label: string, segmentLength: number) {
   const estimatedTextWidth = Math.max(28, label.length * LABEL_FONT_SIZE * 0.62);
   const maxWidthNearLine = Math.max(34, segmentLength - LABEL_LINE_GAP * 2);
-  const shouldMoveOutside = estimatedTextWidth + LABEL_HORIZONTAL_PADDING * 2 > maxWidthNearLine;
+  const shouldMoveOutside = estimatedTextWidth > maxWidthNearLine;
   const fontSize = Math.max(LABEL_MIN_FONT_SIZE, Math.min(LABEL_FONT_SIZE, maxWidthNearLine / Math.max(label.length * 0.62, 1)));
-  const width = Math.max(42, label.length * fontSize * 0.62 + LABEL_HORIZONTAL_PADDING * 2);
-  const height = fontSize + LABEL_VERTICAL_PADDING * 2;
-  return { fontSize, width, height, offset: shouldMoveOutside ? 30 : 18 };
+  return { fontSize, offset: shouldMoveOutside ? 34 : 20 };
+}
+
+function getOffsetLinePoints(start: DrawingPoint, end: DrawingPoint, offset: number) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const normalX = -dy / length;
+  const normalY = dx / length;
+  return {
+    start: { x: start.x + normalX * offset, y: start.y + normalY * offset },
+    end: { x: end.x + normalX * offset, y: end.y + normalY * offset },
+    normalX,
+    normalY,
+    length,
+  };
 }
 
 function getBendTitle(segment: ProfileSegment): string {
@@ -139,7 +152,6 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
       <g key={element.id}>
         <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
         {isHemLine ? <line x1={element.start.x} y1={element.start.y + 5} x2={element.end.x} y2={element.end.y + 5} stroke={stroke} strokeWidth={1.4} strokeDasharray="8 4" /> : null}
-        <rect x={labelX + labelXOffset - labelMetrics.width / 2} y={labelY - labelMetrics.height + 5} width={labelMetrics.width} height={labelMetrics.height} rx={8} fill="white" stroke="#cbd5e1" />
         <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={stroke}>
           {element.text || label}
         </text>
@@ -163,38 +175,44 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
   }
 
   if (element.tool === 'angleDimension') {
+    const angle = element.angleDeg ?? 0;
     const labelX = (element.start.x + element.end.x) / 2;
     const labelY = (element.start.y + element.end.y) / 2 - 18;
+    const isRightAngle = Math.abs(angle - 90) <= 0.5;
     return (
       <g key={element.id}>
-        <path d={`M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}`} stroke={stroke} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
-        <rect x={labelX - 24} y={labelY - 16} width={48} height={22} rx={8} fill="white" stroke="#cbd5e1" />
-        <text x={labelX} y={labelY} textAnchor="middle" className="select-none text-[13px] font-bold" fill={stroke}>
-          {element.text || `${element.angleDeg ?? 0}°`}
+        {isRightAngle ? (
+          <polyline points={`${element.start.x},${element.start.y} ${labelX},${labelY} ${element.end.x},${element.end.y}`} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
+        ) : (
+          <path d={`M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}`} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
+        )}
+        <text x={labelX} y={labelY - 6} textAnchor="middle" className="select-none text-[13px] font-bold" fill={ANGLE_STROKE}>
+          {element.text || `${angle}°`}
         </text>
       </g>
     );
   }
 
   if (element.tool === 'dimension') {
-    const labelX = (element.start.x + element.end.x) / 2;
-    const dx = element.end.x - element.start.x;
-    const dy = element.end.y - element.start.y;
-    const segmentLength = Math.max(1, Math.hypot(dx, dy));
-    const length = Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
-    const labelMetrics = getReadableLabelMetrics(element.text || `${length} мм`, segmentLength);
-    const labelXOffset = (-dy / segmentLength) * labelMetrics.offset;
-    const labelYOffset = (dx / segmentLength) * labelMetrics.offset;
-    const labelY = (element.start.y + element.end.y) / 2 + labelYOffset;
+    const rawLength = Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y);
+    const length = Math.round(rawLength);
+    const label = element.text || `${length} мм`;
+    const labelMetrics = getReadableLabelMetrics(label, rawLength);
+    const offset = getOffsetLinePoints(element.start, element.end, labelMetrics.offset);
+    const extension = 8;
+    const tick = 6;
+    const labelX = (offset.start.x + offset.end.x) / 2;
+    const labelY = (offset.start.y + offset.end.y) / 2 - 4;
 
     return (
       <g key={element.id}>
-        <line x1={element.start.x} y1={element.start.y} x2={element.end.x} y2={element.end.y} {...commonProps} />
-        <circle cx={element.start.x} cy={element.start.y} r={4} fill={stroke} />
-        <circle cx={element.end.x} cy={element.end.y} r={4} fill={stroke} />
-        <rect x={labelX + labelXOffset - labelMetrics.width / 2} y={labelY - labelMetrics.height + 5} width={labelMetrics.width} height={labelMetrics.height} rx={8} fill="white" stroke="#cbd5e1" />
-        <text x={labelX + labelXOffset} y={labelY} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={stroke}>
-          {element.text || `${length} мм`}
+        <line x1={element.start.x} y1={element.start.y} x2={offset.start.x + offset.normalX * extension} y2={offset.start.y + offset.normalY * extension} stroke={DIMENSION_STROKE} strokeWidth={1.2} />
+        <line x1={element.end.x} y1={element.end.y} x2={offset.end.x + offset.normalX * extension} y2={offset.end.y + offset.normalY * extension} stroke={DIMENSION_STROKE} strokeWidth={1.2} />
+        <line x1={offset.start.x} y1={offset.start.y} x2={offset.end.x} y2={offset.end.y} stroke={DIMENSION_STROKE} strokeWidth={1.6} />
+        <line x1={offset.start.x - offset.normalX * tick} y1={offset.start.y - offset.normalY * tick} x2={offset.start.x + offset.normalX * tick} y2={offset.start.y + offset.normalY * tick} stroke={DIMENSION_STROKE} strokeWidth={1.6} />
+        <line x1={offset.end.x - offset.normalX * tick} y1={offset.end.y - offset.normalY * tick} x2={offset.end.x + offset.normalX * tick} y2={offset.end.y + offset.normalY * tick} stroke={DIMENSION_STROKE} strokeWidth={1.6} />
+        <text x={labelX} y={labelY} textAnchor="middle" className="select-none font-bold" fontSize={labelMetrics.fontSize} fill={DIMENSION_STROKE}>
+          {label}
         </text>
       </g>
     );
