@@ -18,6 +18,8 @@ export type DrawingCanvasProps = {
   onPointerUp: (point: DrawingPoint) => void;
   onWheelZoom: (deltaY: number, point: DrawingPoint) => void;
   zoom: number;
+  viewBox: { x: number; y: number; width: number; height: number };
+  canSelectElements: boolean;
   onSelectElement: (elementId: string) => void;
 };
 
@@ -201,22 +203,20 @@ export function DrawingCanvas({
   onPointerUp,
   onWheelZoom,
   zoom,
+  viewBox,
+  canSelectElements,
   onSelectElement,
 }: DrawingCanvasProps) {
   const minorGridId = 'drawing-grid-minor';
   const majorGridId = 'drawing-grid-major';
 
-  const viewWidth = width / zoom;
-  const viewHeight = height / zoom;
-  const viewX = (width - viewWidth) / 2;
-  const viewY = (height - viewHeight) / 2;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-inner">
       <svg
         role="img"
         aria-label="Рабочее поле редактора чертежей"
-        viewBox={`${viewX} ${viewY} ${viewWidth} ${viewHeight}`}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
         className="h-[560px] w-full touch-none bg-white"
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -238,13 +238,14 @@ export function DrawingCanvas({
             <path d={`M ${gridSize * 5} 0 L 0 0 0 ${gridSize * 5}`} fill="none" stroke="#cbd5e1" strokeWidth="1.2" />
           </pattern>
         </defs>
-        {showGrid ? <rect width={width} height={height} fill={`url(#${majorGridId})`} /> : <rect width={width} height={height} fill="#fff" />}
+        {showGrid ? <rect x={0} y={0} width={width} height={height} fill={`url(#${majorGridId})`} /> : <rect x={0} y={0} width={width} height={height} fill="#fff" />}
         <g>
           {elements.map((element) => (
             <g
               key={element.id}
               className="cursor-pointer"
               onPointerDown={(event) => {
+                if (!canSelectElements) return;
                 event.stopPropagation();
                 onSelectElement(element.id);
               }}
