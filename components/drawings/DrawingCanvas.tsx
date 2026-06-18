@@ -84,6 +84,41 @@ function getOffsetLinePoints(start: DrawingPoint, end: DrawingPoint, offset: num
   };
 }
 
+
+function getAngleMarkerGeometry(element: DrawingElement) {
+  const angle = element.angleDeg ?? 0;
+  const vertex = element.vertex;
+  if (!vertex) {
+    const labelX = (element.start.x + element.end.x) / 2;
+    const labelY = (element.start.y + element.end.y) / 2 - 18;
+    return { angle, label: { x: labelX, y: labelY - 6 }, path: `M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}`, rightAnglePoints: null as string | null };
+  }
+
+  const radius = Math.max(16, Math.hypot(element.start.x - vertex.x, element.start.y - vertex.y));
+  const startAngle = Math.atan2(element.start.y - vertex.y, element.start.x - vertex.x);
+  let endAngle = Math.atan2(element.end.y - vertex.y, element.end.x - vertex.x);
+  let delta = endAngle - startAngle;
+  while (delta <= -Math.PI) delta += Math.PI * 2;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  const sweep = delta >= 0 ? 1 : 0;
+  const largeArc = Math.abs(delta) > Math.PI ? 1 : 0;
+  const middleAngle = startAngle + delta / 2;
+  const labelRadius = radius + 16;
+  const label = { x: vertex.x + Math.cos(middleAngle) * labelRadius, y: vertex.y + Math.sin(middleAngle) * labelRadius };
+  const unitStart = { x: Math.cos(startAngle), y: Math.sin(startAngle) };
+  const unitEnd = { x: Math.cos(endAngle), y: Math.sin(endAngle) };
+  const squareSize = Math.min(18, radius * 0.72);
+  const p1 = { x: vertex.x + unitStart.x * squareSize, y: vertex.y + unitStart.y * squareSize };
+  const p2 = { x: p1.x + unitEnd.x * squareSize, y: p1.y + unitEnd.y * squareSize };
+  const p3 = { x: vertex.x + unitEnd.x * squareSize, y: vertex.y + unitEnd.y * squareSize };
+  return {
+    angle,
+    label,
+    path: `M ${element.start.x} ${element.start.y} A ${radius} ${radius} 0 ${largeArc} ${sweep} ${element.end.x} ${element.end.y}`,
+    rightAnglePoints: `${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`,
+  };
+}
+
 function getBendTitle(segment: ProfileSegment): string {
   if (segment.bendType === 'hem') return `Завальцовка ${segment.hemSizeMm || segment.lengthMm} мм`;
   if (segment.bendType === 'lock') return 'Замок';
@@ -175,19 +210,17 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
   }
 
   if (element.tool === 'angleDimension') {
-    const angle = element.angleDeg ?? 0;
-    const labelX = (element.start.x + element.end.x) / 2;
-    const labelY = (element.start.y + element.end.y) / 2 - 18;
-    const isRightAngle = Math.abs(angle - 90) <= 0.5;
+    const geometry = getAngleMarkerGeometry(element);
+    const isRightAngle = Math.abs(geometry.angle - 90) <= 0.5;
     return (
       <g key={element.id}>
-        {isRightAngle ? (
-          <polyline points={`${element.start.x},${element.start.y} ${labelX},${labelY} ${element.end.x},${element.end.y}`} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
+        {isRightAngle && geometry.rightAnglePoints ? (
+          <polyline points={geometry.rightAnglePoints} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
         ) : (
-          <path d={`M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}`} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
+          <path d={geometry.path} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
         )}
-        <text x={labelX} y={labelY - 6} textAnchor="middle" className="select-none text-[13px] font-bold" fill={ANGLE_STROKE}>
-          {element.text || `${angle}°`}
+        <text x={geometry.label.x} y={geometry.label.y} textAnchor="middle" className="select-none text-[13px] font-bold" fill={ANGLE_STROKE}>
+          {element.text || `${geometry.angle}°`}
         </text>
       </g>
     );

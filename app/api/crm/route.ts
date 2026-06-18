@@ -269,6 +269,7 @@ function validateDrawingData(value: unknown): DealFile['drawingData'] {
         tool: requireEnum(elementRecord.tool, DRAWING_TOOLS, 'tool', 'Элемент чертежа'),
         start: validateDrawingPoint(elementRecord.start, 'Начальная точка элемента чертежа'),
         end: validateDrawingPoint(elementRecord.end, 'Конечная точка элемента чертежа'),
+        vertex: elementRecord.vertex === undefined ? undefined : validateDrawingPoint(elementRecord.vertex, 'Вершина угла элемента чертежа'),
         text: optionalString(elementRecord, 'text', 'Элемент чертежа'),
         profile: elementRecord.profile === undefined ? undefined : validateProductProfile(elementRecord.profile),
         lengthMm: optionalNonNegativeNumber(elementRecord, 'lengthMm', 'Элемент чертежа'),
