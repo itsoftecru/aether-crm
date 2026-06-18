@@ -213,27 +213,42 @@ export const INITIAL_REMINDERS: Reminder[] = [
     id: 'reminder-001',
     dealId: 'deal-001',
     clientId: 'client-001',
+    managerId: 'Мария Орлова',
     title: 'Позвонить Анне и подтвердить материалы',
+    description: 'Уточнить наличие массива, зафиксировать выбранную фурнитуру и следующий шаг по визуализации.',
     dueAt: '2026-06-17T15:00:00.000Z',
     isDone: false,
+    completedAt: null,
+    isOverdue: true,
+    priority: 'high',
     type: 'call',
   },
   {
     id: 'reminder-002',
     dealId: 'deal-003',
     clientId: 'client-003',
+    managerId: 'Екатерина Волкова',
     title: 'Отправить спецификацию по переговорной',
+    description: 'Передать финальную спецификацию закупкам и запросить подтверждение сроков поставки.',
     dueAt: '2026-06-18T10:30:00.000Z',
     isDone: false,
+    completedAt: null,
+    isOverdue: false,
+    priority: 'medium',
     type: 'task',
   },
   {
     id: 'reminder-003',
     dealId: 'deal-005',
     clientId: 'client-005',
+    managerId: 'Олег Романов',
     title: 'Проверить финальную оплату',
+    description: 'Сверить поступление по финальному счету и закрыть финансовый контроль сделки.',
     dueAt: '2026-06-16T12:00:00.000Z',
     isDone: true,
+    completedAt: '2026-06-16T12:20:00.000Z',
+    isOverdue: false,
+    priority: 'low',
     type: 'payment',
   },
 ];
@@ -299,6 +314,7 @@ export interface CrmRepository {
   getDeals(): Promise<Deal[]>;
   getDealFiles(dealId?: string): Promise<DealFile[]>;
   getActivityEvents(): Promise<ActivityEvent[]>;
+  getReminders(): Promise<Reminder[]>;
   addDeal(deal: Deal): Promise<Deal>;
   updateDeal(dealId: string, patch: Partial<Deal>): Promise<Deal | null>;
   deleteDeal(dealId: string): Promise<boolean>;
@@ -307,6 +323,10 @@ export interface CrmRepository {
   deleteClient(clientId: string): Promise<boolean>;
   addFile(file: AddDealFileInput): Promise<DealFile>;
   addActivityEvent(event: ActivityEvent): Promise<ActivityEvent>;
+  addReminder(reminder: Reminder): Promise<Reminder>;
+  updateReminder(reminderId: string, patch: Partial<Reminder>): Promise<Reminder | null>;
+  deleteReminder(reminderId: string): Promise<boolean>;
+  completeReminder(reminderId: string): Promise<Reminder | null>;
   updateDealStatus(dealId: string, status: DealStatus): Promise<Deal | null>;
   replaceDeals(deals: Deal[]): Promise<Deal[]>;
 }
@@ -321,6 +341,7 @@ type CrmState = {
   deals: Deal[];
   dealFiles: Array<DealFile & { storageKey?: string | null }>;
   activityEvents: ActivityEvent[];
+  reminders: Reminder[];
 };
 
 const CRM_STATE_KEY = 'aether-crm:repository-state:v1';
@@ -361,12 +382,34 @@ function normalizeDealFinancialFields(deal: Partial<Deal> & { price?: unknown; r
   };
 }
 
+
+function normalizeReminder(reminder: Partial<Reminder>): Reminder {
+  const dueAt = reminder.dueAt ?? new Date().toISOString();
+  const isDone = Boolean(reminder.isDone);
+
+  return {
+    id: reminder.id ?? `reminder-${Date.now()}`,
+    dealId: reminder.dealId ?? '',
+    clientId: reminder.clientId ?? '',
+    managerId: reminder.managerId?.trim() || 'Без ответственного',
+    title: reminder.title?.trim() || 'Напоминание без названия',
+    description: reminder.description?.trim() || '',
+    dueAt,
+    isDone,
+    completedAt: reminder.completedAt ?? null,
+    isOverdue: !isDone && new Date(dueAt).getTime() < Date.now(),
+    priority: reminder.priority ?? 'medium',
+    type: reminder.type ?? 'task',
+  };
+}
+
 function createInitialState(): CrmState {
   return {
     clients: INITIAL_CLIENTS,
     deals: INITIAL_DEALS.map(normalizeDealFinancialFields),
     dealFiles: INITIAL_DEAL_FILES.map((file) => ({ ...file, storageKey: null })),
     activityEvents: INITIAL_ACTIVITY_EVENTS,
+    reminders: INITIAL_REMINDERS.map(normalizeReminder),
   };
 }
 
@@ -382,6 +425,7 @@ function safeParseState(value: string | null): CrmState | null {
       deals: parsed.deals.map((deal) => normalizeDealFinancialFields(deal as Partial<Deal> & { price?: unknown; revenue?: unknown })),
       dealFiles: parsed.dealFiles,
       activityEvents: parsed.activityEvents,
+      reminders: Array.isArray(parsed.reminders) ? parsed.reminders.map((reminder) => normalizeReminder(reminder as Partial<Reminder>)) : INITIAL_REMINDERS.map(normalizeReminder),
     };
   } catch {
     return null;
@@ -447,6 +491,16 @@ export class LocalStorageCrmRepository implements CrmRepository {
     return this.readState().activityEvents;
   }
 
+  async getReminders(): Promise<Reminder[]> {
+    const state = this.readState();
+    const reminders = state.reminders.map(normalizeReminder);
+    if (JSON.stringify(reminders) !== JSON.stringify(state.reminders)) {
+      state.reminders = reminders;
+      this.writeState(state);
+    }
+    return reminders;
+  }
+
   async addDeal(deal: Deal): Promise<Deal> {
     const state = this.readState();
     const client = state.clients.find((currentClient) => currentClient.id === deal.clientId);
@@ -505,6 +559,7 @@ export class LocalStorageCrmRepository implements CrmRepository {
 
     state.deals = state.deals.filter((deal) => deal.id !== dealId);
     state.dealFiles = state.dealFiles.filter((file) => file.dealId !== dealId);
+    state.reminders = state.reminders.filter((reminder) => reminder.dealId !== dealId);
     state.activityEvents = state.activityEvents.filter((event) => event.dealId !== dealId);
     this.writeState(state);
     return true;
@@ -559,6 +614,7 @@ export class LocalStorageCrmRepository implements CrmRepository {
     }
 
     state.clients = state.clients.filter((client) => client.id !== clientId);
+    state.reminders = state.reminders.filter((reminder) => reminder.clientId !== clientId);
     this.writeState(state);
     return true;
   }
@@ -586,6 +642,48 @@ export class LocalStorageCrmRepository implements CrmRepository {
     state.activityEvents = [event, ...state.activityEvents];
     this.writeState(state);
     return event;
+  }
+
+
+
+  async addReminder(reminder: Reminder): Promise<Reminder> {
+    const state = this.readState();
+    const normalizedReminder = normalizeReminder(reminder);
+    state.reminders = [normalizedReminder, ...state.reminders.filter((currentReminder) => currentReminder.id !== reminder.id)];
+    this.writeState(state);
+    return normalizedReminder;
+  }
+
+  async updateReminder(reminderId: string, patch: Partial<Reminder>): Promise<Reminder | null> {
+    const state = this.readState();
+    let updatedReminder: Reminder | null = null;
+
+    state.reminders = state.reminders.map((reminder) => {
+      if (reminder.id !== reminderId) return reminder;
+      updatedReminder = normalizeReminder({ ...reminder, ...patch, id: reminder.id });
+      return updatedReminder;
+    });
+
+    if (!updatedReminder) return null;
+    this.writeState(state);
+    return updatedReminder;
+  }
+
+  async deleteReminder(reminderId: string): Promise<boolean> {
+    const state = this.readState();
+    const hasReminder = state.reminders.some((reminder) => reminder.id === reminderId);
+    if (!hasReminder) return false;
+    state.reminders = state.reminders.filter((reminder) => reminder.id !== reminderId);
+    this.writeState(state);
+    return true;
+  }
+
+  async completeReminder(reminderId: string): Promise<Reminder | null> {
+    return this.updateReminder(reminderId, {
+      isDone: true,
+      completedAt: new Date().toISOString(),
+      isOverdue: false,
+    });
   }
 
   async updateDealStatus(dealId: string, status: DealStatus): Promise<Deal | null> {

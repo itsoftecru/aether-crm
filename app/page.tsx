@@ -54,7 +54,7 @@ import { DrawingEditor } from '@/components/drawings/DrawingEditor';
 import { FileDropzone } from '@/components/files/FileDropzone';
 import { FileList } from '@/components/files/FileList';
 import { getNextFileVersion } from '@/components/files/fileUtils';
-import { crmRepository, INITIAL_CLIENTS, INITIAL_DEALS, INITIAL_DEAL_FILES, INITIAL_ACTIVITY_EVENTS, INITIAL_REMINDERS } from '@/lib/crmRepository';
+import { crmRepository, INITIAL_CLIENTS, INITIAL_DEALS, INITIAL_DEAL_FILES, INITIAL_ACTIVITY_EVENTS } from '@/lib/crmRepository';
 import {
   DEAL_COST_CATEGORIES,
   DEAL_COST_CATEGORY_TITLES,
@@ -64,7 +64,7 @@ import {
   calculateDealNetProfit,
   createEmptyDealFinancials,
 } from '@/lib/dealFinancials';
-import type { ActivityEvent, Client, Deal, DealCostCategory, DealCostItem, DealFile, DealFinancials, DealStatus, DocumentKind, DrawingElement } from '@/types/crm';
+import type { ActivityEvent, Client, Deal, DealCostCategory, DealCostItem, DealFile, DealFinancials, DealStatus, DocumentKind, DrawingElement, Reminder, ReminderPriority } from '@/types/crm';
 
 type ActiveSection = 'home' | 'clients' | 'deals' | 'drawings' | 'files' | 'settings';
 
@@ -79,6 +79,57 @@ type ClientFormValues = Pick<Client, 'name' | 'company' | 'phone' | 'email' | 'm
 type ClientFormMode = 'create' | 'edit' | null;
 type DealFormMode = 'create' | 'edit' | null;
 type DealFormValues = Pick<Deal, 'title' | 'clientId' | 'status' | 'owner' | 'dueDate' | 'revenueAmount' | 'currency' | 'financials' | 'notes'>;
+type ReminderFilter = 'today' | 'overdue' | 'future';
+type ReminderFormValues = Pick<Reminder, 'title' | 'description' | 'dueAt' | 'type' | 'priority'>;
+
+
+const EMPTY_REMINDER_FORM: ReminderFormValues = {
+  title: '',
+  description: '',
+  dueAt: '',
+  type: 'task',
+  priority: 'medium',
+};
+
+const REMINDER_TYPE_TITLES: Record<Reminder['type'], string> = {
+  call: 'Звонок',
+  meeting: 'Встреча',
+  payment: 'Оплата',
+  task: 'Задача',
+};
+
+const REMINDER_PRIORITY_TITLES: Record<ReminderPriority, string> = {
+  low: 'Низкий',
+  medium: 'Средний',
+  high: 'Высокий',
+};
+
+function normalizeReminderFormValues(values: ReminderFormValues): ReminderFormValues {
+  return {
+    title: values.title.trim(),
+    description: values.description.trim(),
+    dueAt: values.dueAt.trim(),
+    type: values.type,
+    priority: values.priority,
+  };
+}
+
+function validateReminderForm(values: ReminderFormValues): string | null {
+  const normalizedValues = normalizeReminderFormValues(values);
+  if (!normalizedValues.title) return 'Укажите название напоминания.';
+  if (!normalizedValues.dueAt) return 'Укажите дату и время напоминания.';
+  if (Number.isNaN(new Date(normalizedValues.dueAt).getTime())) return 'Укажите корректную дату напоминания.';
+  return null;
+}
+
+function toLocalDateTimeInputValue(date: Date): string {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+function isReminderOverdue(reminder: Reminder): boolean {
+  return !reminder.isDone && new Date(reminder.dueAt).getTime() < Date.now();
+}
 
 const EMPTY_CLIENT_FORM: ClientFormValues = {
   name: '',
@@ -479,6 +530,11 @@ export default function HomePage() {
   const [deals, setDeals] = useState<Deal[]>(INITIAL_DEALS);
   const [dealFiles, setDealFiles] = useState<DealFile[]>(INITIAL_DEAL_FILES);
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>(INITIAL_ACTIVITY_EVENTS);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [reminderFilter, setReminderFilter] = useState<ReminderFilter>('today');
+  const [reminderFormContext, setReminderFormContext] = useState<{ clientId: string; dealId: string } | null>(null);
+  const [reminderFormValues, setReminderFormValues] = useState<ReminderFormValues>(EMPTY_REMINDER_FORM);
+  const [reminderFormError, setReminderFormError] = useState<string | null>(null);
   const [drawingDealId, setDrawingDealId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [clientFormMode, setClientFormMode] = useState<ClientFormMode>(null);
@@ -497,11 +553,12 @@ export default function HomePage() {
     let isMounted = true;
 
     async function loadCrmData() {
-      const [loadedClients, loadedDeals, loadedFiles, loadedEvents] = await Promise.all([
+      const [loadedClients, loadedDeals, loadedFiles, loadedEvents, loadedReminders] = await Promise.all([
         crmRepository.getClients(),
         crmRepository.getDeals(),
         crmRepository.getDealFiles(),
         crmRepository.getActivityEvents(),
+        crmRepository.getReminders(),
       ]);
 
       if (!isMounted) {
@@ -512,6 +569,7 @@ export default function HomePage() {
       setDeals(loadedDeals);
       setDealFiles(loadedFiles);
       setActivityEvents(loadedEvents);
+      setReminders(loadedReminders);
       setSelectedClientId((currentClientId) => loadedClients.some((client) => client.id === currentClientId) ? currentClientId : loadedClients[0]?.id ?? currentClientId);
     }
 
@@ -578,11 +636,20 @@ export default function HomePage() {
   const tomorrowKey = toDateKey(getTomorrow(today));
 
   const upcomingReminders = useMemo(() => {
-    return INITIAL_REMINDERS.filter((reminder) => {
+    return reminders.filter((reminder) => {
       const dueKey = toDateKey(new Date(reminder.dueAt));
       return !reminder.isDone && (dueKey === todayKey || dueKey === tomorrowKey);
     });
-  }, [todayKey, tomorrowKey]);
+  }, [reminders, todayKey, tomorrowKey]);
+
+  const filteredReminders = useMemo(() => {
+    return reminders.filter((reminder) => {
+      const dueKey = toDateKey(new Date(reminder.dueAt));
+      if (reminderFilter === 'today') return !reminder.isDone && dueKey === todayKey;
+      if (reminderFilter === 'overdue') return isReminderOverdue(reminder);
+      return !reminder.isDone && dueKey > todayKey;
+    });
+  }, [reminderFilter, reminders, todayKey]);
 
   const overdueDeals = useMemo(() => {
     return deals.filter((deal) => deal.status !== 'done' && deal.dueDate < todayKey);
@@ -1018,10 +1085,83 @@ export default function HomePage() {
 
     setDeals((currentDeals) => currentDeals.filter((currentDeal) => currentDeal.id !== deal.id));
     setDealFiles((currentFiles) => currentFiles.filter((file) => file.dealId !== deal.id));
+    setReminders((currentReminders) => currentReminders.filter((reminder) => reminder.dealId !== deal.id));
     setActivityEvents((currentEvents) => currentEvents.filter((activityEvent) => activityEvent.dealId !== deal.id));
     if (editingDealId === deal.id) closeDealForm();
     if (drawingDealId === deal.id) setDrawingDealId(null);
   }, [closeDealForm, drawingDealId, editingDealId]);
+
+
+
+  const openReminderForm = useCallback((clientId: string, dealId: string) => {
+    setReminderFormContext({ clientId, dealId });
+    setReminderFormValues({
+      ...EMPTY_REMINDER_FORM,
+      dueAt: toLocalDateTimeInputValue(new Date(Date.now() + 60 * 60 * 1000)),
+    });
+    setReminderFormError(null);
+  }, []);
+
+  const closeReminderForm = useCallback(() => {
+    setReminderFormContext(null);
+    setReminderFormValues(EMPTY_REMINDER_FORM);
+    setReminderFormError(null);
+  }, []);
+
+  const updateReminderFormField = useCallback((field: keyof ReminderFormValues, value: string) => {
+    setReminderFormValues((currentValues) => ({
+      ...currentValues,
+      [field]: value,
+    }));
+    setReminderFormError(null);
+  }, []);
+
+  const handleReminderFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!reminderFormContext) return;
+
+    const validationError = validateReminderForm(reminderFormValues);
+    if (validationError) {
+      setReminderFormError(validationError);
+      return;
+    }
+
+    const deal = deals.find((currentDeal) => currentDeal.id === reminderFormContext.dealId);
+    if (!deal) {
+      setReminderFormError('Сделка не найдена. Обновите страницу и повторите операцию.');
+      return;
+    }
+
+    const normalizedValues = normalizeReminderFormValues(reminderFormValues);
+    const createdReminder = await crmRepository.addReminder({
+      id: `reminder-${Date.now()}`,
+      clientId: reminderFormContext.clientId,
+      dealId: reminderFormContext.dealId,
+      managerId: deal.owner,
+      title: normalizedValues.title,
+      description: normalizedValues.description,
+      dueAt: new Date(normalizedValues.dueAt).toISOString(),
+      isDone: false,
+      completedAt: null,
+      isOverdue: false,
+      priority: normalizedValues.priority,
+      type: normalizedValues.type,
+    });
+
+    setReminders((currentReminders) => [createdReminder, ...currentReminders]);
+    closeReminderForm();
+  }, [closeReminderForm, deals, reminderFormContext, reminderFormValues]);
+
+  const handleCompleteReminder = useCallback(async (reminderId: string) => {
+    const completedReminder = await crmRepository.completeReminder(reminderId);
+    if (!completedReminder) {
+      window.alert('Напоминание не найдено. Обновите страницу и повторите операцию.');
+      return;
+    }
+    setReminders((currentReminders) => currentReminders.map((reminder) => (
+      reminder.id === completedReminder.id ? completedReminder : reminder
+    )));
+  }, []);
 
   const handleDeleteClient = useCallback(async (client: Client) => {
     const relatedDeals = deals.filter((deal) => deal.clientId === client.id);
@@ -1144,8 +1284,15 @@ export default function HomePage() {
                         <ul className="space-y-2">
                           {upcomingReminders.map((reminder) => (
                             <li key={reminder.id} className="rounded-xl bg-white p-2 text-slate-700">
-                              <p className="font-semibold text-slate-950">{reminder.title}</p>
-                              <p className="mt-1 text-slate-500">{formatDateTime(reminder.dueAt)}</p>
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-semibold text-slate-950">{reminder.title}</p>
+                                  <p className="mt-1 text-slate-500">{formatDateTime(reminder.dueAt)} · {reminder.managerId}</p>
+                                </div>
+                                <Button type="button" size="sm" variant="outline" onClick={() => handleCompleteReminder(reminder.id)}>
+                                  Готово
+                                </Button>
+                              </div>
                             </li>
                           ))}
                         </ul>
@@ -1201,6 +1348,50 @@ export default function HomePage() {
                 Найдено клиентов: {filteredClients.length}, сделок: {filteredDeals.length}.
               </p>
             ) : null}
+          </section>
+
+          <section className="border-b border-slate-200 bg-white px-5 py-4 sm:px-8">
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-950">Напоминания</h2>
+                <p className="text-sm text-slate-500">Фильтры: сегодня, просрочено и будущие задачи по клиентам и сделкам.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(['today', 'overdue', 'future'] as ReminderFilter[]).map((filter) => (
+                  <Button key={filter} type="button" variant={reminderFilter === filter ? 'default' : 'outline'} size="sm" onClick={() => setReminderFilter(filter)}>
+                    {filter === 'today' ? 'Сегодня' : filter === 'overdue' ? 'Просрочено' : 'Будущие'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {filteredReminders.length > 0 ? (
+              <div className="grid gap-3 lg:grid-cols-3">
+                {filteredReminders.map((reminder) => {
+                  const reminderDeal = deals.find((deal) => deal.id === reminder.dealId);
+                  const reminderClient = clients.find((client) => client.id === reminder.clientId);
+                  return (
+                    <article key={reminder.id} className={`rounded-2xl border p-3 text-sm ${isReminderOverdue(reminder) ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-slate-950">{reminder.title}</p>
+                          <p className="mt-1 text-slate-600">{formatDateTime(reminder.dueAt)} · {REMINDER_TYPE_TITLES[reminder.type]}</p>
+                        </div>
+                        <Badge variant="outline">{REMINDER_PRIORITY_TITLES[reminder.priority]}</Badge>
+                      </div>
+                      {reminder.description ? <p className="mt-2 leading-5 text-slate-600">{reminder.description}</p> : null}
+                      <p className="mt-2 text-xs text-slate-500">{reminderClient?.name ?? 'Клиент не найден'} · {reminderDeal?.title ?? 'Сделка не найдена'} · {reminder.managerId}</p>
+                      {!reminder.isDone ? (
+                        <Button type="button" size="sm" className="mt-3" onClick={() => handleCompleteReminder(reminder.id)}>
+                          <CheckCircle2 className="h-4 w-4" /> Выполнено
+                        </Button>
+                      ) : <p className="mt-3 text-xs font-semibold text-emerald-700">Выполнено</p>}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">Нет напоминаний по выбранному фильтру.</p>
+            )}
           </section>
 
           {activeSection === 'home' ? (
@@ -1297,6 +1488,10 @@ export default function HomePage() {
                       <p className="mt-1 max-w-xl leading-6">{selectedClient.comments || 'Комментарий пока не добавлен.'}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => openReminderForm(selectedClient.id, selectedClientDeals[0]?.id ?? '')} disabled={selectedClientDeals.length === 0}>
+                        <Bell className="h-4 w-4" />
+                        Напоминание
+                      </Button>
                       <Button type="button" variant="outline" size="sm" onClick={() => openEditClientForm(selectedClient)}>
                         <Pencil className="h-4 w-4" />
                         Редактировать
@@ -1344,6 +1539,31 @@ export default function HomePage() {
                       </Button>
                       <Button type="button" variant="outline" onClick={closeClientForm}>Отмена</Button>
                     </div>
+                  </form>
+                ) : null}
+
+                {reminderFormContext?.clientId === selectedClient.id && selectedClientDeals.some((deal) => deal.id === reminderFormContext.dealId) ? (
+                  <form onSubmit={handleReminderFormSubmit} className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-bold text-slate-950">Новое напоминание</h3>
+                        <p className="mt-1 text-sm text-slate-600">Карточка клиента создаёт напоминание по первой доступной сделке клиента.</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={closeReminderForm} aria-label="Закрыть форму напоминания"><X className="h-4 w-4" /></Button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Input value={reminderFormValues.title} onChange={(event) => updateReminderFormField('title', event.target.value)} placeholder="Название *" />
+                      <Input type="datetime-local" value={reminderFormValues.dueAt} onChange={(event) => updateReminderFormField('dueAt', event.target.value)} />
+                      <select value={reminderFormValues.type} onChange={(event) => updateReminderFormField('type', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
+                        {Object.entries(REMINDER_TYPE_TITLES).map(([type, title]) => <option key={type} value={type}>{title}</option>)}
+                      </select>
+                      <select value={reminderFormValues.priority} onChange={(event) => updateReminderFormField('priority', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
+                        {Object.entries(REMINDER_PRIORITY_TITLES).map(([priority, title]) => <option key={priority} value={priority}>{title}</option>)}
+                      </select>
+                      <textarea value={reminderFormValues.description} onChange={(event) => updateReminderFormField('description', event.target.value)} placeholder="Описание" className="min-h-20 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 md:col-span-2" />
+                    </div>
+                    {reminderFormError ? <p className="mt-3 text-sm font-semibold text-red-700">{reminderFormError}</p> : null}
+                    <div className="mt-4 flex gap-2"><Button type="submit"><Save className="h-4 w-4" />Создать напоминание</Button><Button type="button" variant="outline" onClick={closeReminderForm}>Отмена</Button></div>
                   </form>
                 ) : null}
 
@@ -1586,7 +1806,35 @@ export default function HomePage() {
                                       <Trash2 className="h-4 w-4" />
                                       Удалить
                                     </Button>
+                                    <Button type="button" variant="outline" size="sm" onPointerDown={(event) => event.stopPropagation()} onClick={() => openReminderForm(deal.clientId, deal.id)} className="h-8">
+                                      <Bell className="h-4 w-4" />
+                                      Напоминание
+                                    </Button>
                                   </div>
+
+                                  {reminderFormContext?.dealId === deal.id ? (
+                                    <form onSubmit={handleReminderFormSubmit} className="mb-3 rounded-2xl border border-amber-100 bg-amber-50 p-3" onPointerDown={(event) => event.stopPropagation()}>
+                                      <div className="mb-3 flex items-start justify-between gap-2">
+                                        <h4 className="text-sm font-bold text-slate-950">Новое напоминание</h4>
+                                        <Button type="button" variant="ghost" size="sm" onClick={closeReminderForm}><X className="h-4 w-4" /></Button>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Input value={reminderFormValues.title} onChange={(event) => updateReminderFormField('title', event.target.value)} placeholder="Название *" />
+                                        <Input type="datetime-local" value={reminderFormValues.dueAt} onChange={(event) => updateReminderFormField('dueAt', event.target.value)} />
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <select value={reminderFormValues.type} onChange={(event) => updateReminderFormField('type', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
+                                            {Object.entries(REMINDER_TYPE_TITLES).map(([type, title]) => <option key={type} value={type}>{title}</option>)}
+                                          </select>
+                                          <select value={reminderFormValues.priority} onChange={(event) => updateReminderFormField('priority', event.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400">
+                                            {Object.entries(REMINDER_PRIORITY_TITLES).map(([priority, title]) => <option key={priority} value={priority}>{title}</option>)}
+                                          </select>
+                                        </div>
+                                        <textarea value={reminderFormValues.description} onChange={(event) => updateReminderFormField('description', event.target.value)} placeholder="Описание" className="min-h-20 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400" />
+                                      </div>
+                                      {reminderFormError ? <p className="mt-2 text-xs font-semibold text-red-700">{reminderFormError}</p> : null}
+                                      <div className="mt-3 flex gap-2"><Button type="submit" size="sm"><Save className="h-4 w-4" />Создать</Button><Button type="button" variant="outline" size="sm" onClick={closeReminderForm}>Отмена</Button></div>
+                                    </form>
+                                  ) : null}
 
                                   <dl className="space-y-2 text-sm text-slate-600">
                                     <div className="flex items-center justify-between gap-3">
