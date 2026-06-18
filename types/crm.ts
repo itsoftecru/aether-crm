@@ -82,13 +82,20 @@ export type Deal = {
 };
 
 
+export type ReminderPriority = 'low' | 'medium' | 'high';
+
 export type Reminder = {
   id: string;
   dealId: string;
   clientId: string;
+  managerId: string;
   title: string;
+  description: string;
   dueAt: string;
   isDone: boolean;
+  completedAt?: string | null;
+  isOverdue: boolean;
+  priority: ReminderPriority;
   type: 'call' | 'meeting' | 'payment' | 'task';
 };
 
