@@ -100,7 +100,8 @@ export type DealFile = {
   drawingData?: DrawingAttachment;
 };
 
-export type DrawingTool = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'text';
+export type DrawingTool = 'select' | 'line' | 'rectangle' | 'circle' | 'dimension' | 'text' | 'profile';
+export type BendType = 'straight' | 'bend' | 'hem' | 'lock' | 'dripEdge';
 
 export type DrawingPoint = {
   x: number;
@@ -113,12 +114,46 @@ export type DrawingElement = {
   start: DrawingPoint;
   end: DrawingPoint;
   text?: string;
+  profile?: ProductProfile;
+};
+
+export type ProfileSegment = {
+  id: string;
+  lengthMm: number;
+  angleDeg: number;
+  bendType: BendType;
+  label?: string;
+  hemSizeMm?: number;
+  hemDirection?: 'inside' | 'outside';
+  bendRadiusMm?: number;
+};
+
+export type ProductProfile = {
+  name: string;
+  segments: ProfileSegment[];
+  lengthMm: number;
+  quantity: number;
+  material: string;
+  thicknessMm: number;
+  color: string;
+  notes?: string;
+};
+
+export type DrawingProduct = ProductProfile & {
+  id: string;
+  profileElementId: string;
+  profileFormula: string;
 };
 
 export type DrawingAttachment = {
   format: 'svg';
   elements: DrawingElement[];
   svg: string;
+  products?: DrawingProduct[];
+  title?: string;
+  createdAt?: string;
+  version?: number;
+  author?: string;
 };
 
 export type ActivityEventType = 'dealCreated' | 'statusChanged' | 'fileUploaded' | 'drawingCreated' | 'documentGenerated';
