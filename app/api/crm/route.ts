@@ -36,7 +36,7 @@ const COST_CATEGORIES = [
 const REMINDER_PRIORITIES = ['low', 'medium', 'high'] as const;
 const REMINDER_TYPES = ['call', 'meeting', 'payment', 'task'] as const;
 const DOCUMENT_KINDS = ['proposal', 'contract', 'invoice', 'completionAct'] as const;
-const DRAWING_TOOLS = ['line', 'rectangle', 'circle', 'dimension', 'text', 'profile'] as const;
+const DRAWING_TOOLS = ['line', 'hem', 'rectangle', 'circle', 'dimension', 'angleDimension', 'text', 'profile'] as const;
 const BEND_TYPES = ['straight', 'bend', 'hem', 'lock', 'dripEdge'] as const;
 
 function validationError(message: string): never {

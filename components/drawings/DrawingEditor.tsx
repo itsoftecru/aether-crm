@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { DrawingAttachment, DrawingElement, DrawingPoint, DrawingProduct, DrawingTool, ProductProfile, ProfileSegment } from '@/types/crm';
 import { DrawingCanvas, renderElement } from './DrawingCanvas';
 import { DrawingToolbar } from './DrawingToolbar';
@@ -28,10 +28,14 @@ type ProductSpecDraft = {
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 620;
 const GRID_SIZE = 10;
+const SNAP_SIZE = 1;
+const MIN_ZOOM = 0.35;
+const MAX_ZOOM = 8;
+const ZOOM_STEP = 1.12;
 const PROFILE_SCALE = 1;
 function snapPoint(point: DrawingPoint, enabled: boolean): DrawingPoint {
   if (!enabled) return point;
-  return { x: Math.max(0, Math.min(CANVAS_WIDTH, Math.round(point.x / GRID_SIZE) * GRID_SIZE)), y: Math.max(0, Math.min(CANVAS_HEIGHT, Math.round(point.y / GRID_SIZE) * GRID_SIZE)) };
+  return { x: Math.max(0, Math.min(CANVAS_WIDTH, Math.round(point.x / SNAP_SIZE) * SNAP_SIZE)), y: Math.max(0, Math.min(CANVAS_HEIGHT, Math.round(point.y / SNAP_SIZE) * SNAP_SIZE)) };
 }
 
 function escapeXml(value: string): string {
@@ -78,7 +82,8 @@ function resizeElementToExactLength(element: DrawingElement, requestedLengthMm: 
   if (!Number.isFinite(requestedLengthMm) || requestedLengthMm <= 0 || currentLength <= 0) return element;
   const ratio = requestedLengthMm / currentLength;
   const end = { x: element.start.x + dx * ratio, y: element.start.y + dy * ratio };
-  return { ...element, end, lengthMm: Number(requestedLengthMm.toFixed(1)), text: element.tool === 'dimension' ? `${requestedLengthMm} мм` : element.text };
+  const roundedLength = Math.round(requestedLengthMm);
+  return { ...element, end, lengthMm: roundedLength, text: element.tool === 'dimension' ? `${roundedLength} мм` : element.text };
 }
 
 function getAngleBetweenElements(first: DrawingElement, second: DrawingElement): number {
@@ -181,6 +186,9 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(false);
   const [elements, setElements] = useState<DrawingElement[]>(initialDrawing?.elements ?? []);
+  const [undoStack, setUndoStack] = useState<DrawingElement[][]>([]);
+  const [redoStack, setRedoStack] = useState<DrawingElement[][]>([]);
+  const [zoom, setZoom] = useState(1);
   const [draftStart, setDraftStart] = useState<DrawingPoint | null>(null);
   const [mousePoint, setMousePoint] = useState<DrawingPoint | null>(null);
   const [snappedPoint, setSnappedPoint] = useState<DrawingPoint | null>(null);
@@ -192,11 +200,44 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
   const selectedElement = elements.find((element) => element.id === selectedElementId) ?? null;
   const products = useMemo(() => createDrawingProducts(elements, productSpec), [elements, productSpec]);
 
+  const commitElements = useCallback((next: DrawingElement[] | ((current: DrawingElement[]) => DrawingElement[])) => {
+    setElements((current) => {
+      const resolved = typeof next === 'function' ? next(current) : next;
+      if (resolved === current) return current;
+      setUndoStack((history) => [...history, current]);
+      setRedoStack([]);
+      return resolved;
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    setUndoStack((history) => {
+      const previous = history.at(-1);
+      if (!previous) return history;
+      setRedoStack((currentRedo) => [elements, ...currentRedo]);
+      setElements(previous);
+      setSelectedElementId(previous.at(-1)?.id ?? null);
+      return history.slice(0, -1);
+    });
+  }, [elements]);
+
+  const redo = useCallback(() => {
+    setRedoStack((history) => {
+      const next = history[0];
+      if (!next) return history;
+      setUndoStack((currentUndo) => [...currentUndo, elements]);
+      setElements(next);
+      setSelectedElementId(next.at(-1)?.id ?? null);
+      return history.slice(1);
+    });
+  }, [elements]);
+
+
   const addTextElement = (point: DrawingPoint) => {
     const text = window.prompt('Введите текстовую пометку для чертежа:', 'Пометка');
     if (!text || text.trim().length === 0) return;
     const element = { id: `drawing-${dealId}-${Date.now()}`, tool: 'text' as const, start: point, end: point, text: text.trim() };
-    setElements((current) => [...current, element]);
+    commitElements((current) => [...current, element]);
     setSelectedElementId(element.id);
   };
 
@@ -205,7 +246,7 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
       setPreviewElement(null);
       return;
     }
-    const length = Number(Math.hypot(end.x - start.x, end.y - start.y).toFixed(1));
+    const length = Math.round(Math.hypot(end.x - start.x, end.y - start.y));
     setPreviewElement({ id: `preview-${activeTool}`, tool: activeTool, start, end, lengthMm: length, hemSizeMm: activeTool === 'hem' ? 15 : undefined, text: activeTool === 'dimension' ? `${length} мм` : undefined });
   };
 
@@ -236,28 +277,38 @@ export function DrawingEditor({ dealId, dealTitle, initialDrawing, onSave, onExp
       angleDeg: angle,
       text: `${angle}°`,
     };
-    setElements((current) => [...current, angleElement]);
+    commitElements((current) => [...current, angleElement]);
     setSelectedElementId(angleElement.id);
     setPendingAngleElementId(null);
   };
 
   const payload = createPayload(elements, title, productSpec);
 
+  const exportPdf = useCallback(() => {
+    const pdfPayload = createPayload(elements, title, productSpec);
+    const html = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escapeXml(pdfPayload.title)}</title><style>@page{size:A4 landscape;margin:10mm}body{margin:0;font-family:Arial,sans-serif}.sheet{width:100%}svg{max-width:100%;height:auto}</style></head><body><main class="sheet">${pdfPayload.svg}</main><script>window.addEventListener('load',()=>{window.print();});</script></body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const printWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (!printWindow) onExportPdf?.(dealId, pdfPayload);
+  }, [dealId, elements, onExportPdf, productSpec, title]);
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 p-4 backdrop-blur-sm">
       <div className="mx-auto max-w-7xl rounded-3xl bg-slate-50 p-4 shadow-2xl">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Редактор чертежей</p><h2 className="mt-1 text-2xl font-bold text-slate-950">{title}</h2><p className="mt-1 text-sm text-slate-600">Оранжевая точка — реальный курсор, синяя — точка привязки. Привязка отключена по умолчанию: можно чертить любой размер, а точную длину задать при завершении линии.</p></div>
+          <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Редактор чертежей</p><h2 className="mt-1 text-2xl font-bold text-slate-950">{title}</h2><p className="mt-1 text-sm text-slate-600">Оранжевая точка — реальный курсор, синяя — точка привязки. Колесо мыши приближает и отдаляет поле. Привязка отключена по умолчанию; при включении шаг составляет 1 мм, размеры округляются до целых миллиметров.</p></div>
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">Объектов: <span className="font-bold text-slate-950">{elements.length}</span>{mousePoint ? <span> · Курсор X {Math.round(mousePoint.x)} / Y {Math.round(mousePoint.y)}</span> : null}{snappedPoint ? <span> · Привязка X {Math.round(snappedPoint.x)} / Y {Math.round(snappedPoint.y)}</span> : null}</div>
         </div>
-        <DrawingToolbar activeTool={activeTool} showGrid={showGrid} snapToGrid={snapToGrid} canSave={elements.length > 0} onToolChange={(tool) => { setActiveTool(tool); setDraftStart(null); setPreviewElement(null); setPendingAngleElementId(null); }} onShowGridChange={setShowGrid} onSnapToGridChange={setSnapToGrid} onClear={() => { setElements([]); setSelectedElementId(null); setDraftStart(null); setPreviewElement(null); setPendingAngleElementId(null); }} onClose={onClose} onExportPdf={() => onExportPdf?.(dealId, payload)} onSave={() => onSave(dealId, payload)} />
+        <DrawingToolbar activeTool={activeTool} showGrid={showGrid} snapToGrid={snapToGrid} canSave={elements.length > 0} onToolChange={(tool) => { setActiveTool(tool); setDraftStart(null); setPreviewElement(null); setPendingAngleElementId(null); }} onShowGridChange={setShowGrid} onSnapToGridChange={setSnapToGrid} canUndo={undoStack.length > 0} canRedo={redoStack.length > 0} onUndo={undo} onRedo={redo} onClear={() => { commitElements([]); setSelectedElementId(null); setDraftStart(null); setPreviewElement(null); setPendingAngleElementId(null); }} onClose={onClose} onExportPdf={exportPdf} onSave={() => onSave(dealId, payload)} />
         <div className="mt-4 grid gap-4 xl:grid-cols-[320px_1fr]">
           <aside className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
             <section><h3 className="font-bold text-slate-950">Параметры изделия</h3><p className="mt-1 text-xs text-slate-500">Развертка считается автоматически по нарисованным линиям, затем умножается на длину изделия для м².</p><div className="mt-3 grid gap-2 text-sm"><input value={productSpec.name} onChange={(event) => setProductSpec((current) => ({ ...current, name: event.target.value }))} className="rounded-xl border px-3 py-2" placeholder="Название" /><div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">Развертка: <b>{getManualFormula(elements)}</b> · площадь: <b>{getAreaM2(getUnfoldingMm(elements), productSpec.lengthMm, productSpec.quantity)} м²</b></div><div className="grid grid-cols-2 gap-2"><input type="number" value={productSpec.lengthMm} onChange={(event) => setProductSpec((current) => ({ ...current, lengthMm: Number(event.target.value) || 0 }))} className="rounded-xl border px-3 py-2" placeholder="Длина" /><input type="number" value={productSpec.quantity} onChange={(event) => setProductSpec((current) => ({ ...current, quantity: Number(event.target.value) || 1 }))} className="rounded-xl border px-3 py-2" placeholder="Кол-во" /></div><div className="grid grid-cols-2 gap-2"><input value={productSpec.material} onChange={(event) => setProductSpec((current) => ({ ...current, material: event.target.value }))} className="rounded-xl border px-3 py-2" placeholder="Материал" /><input type="number" step="0.1" value={productSpec.thicknessMm} onChange={(event) => setProductSpec((current) => ({ ...current, thicknessMm: Number(event.target.value) || 0 }))} className="rounded-xl border px-3 py-2" placeholder="Толщина" /></div><input value={productSpec.color} onChange={(event) => setProductSpec((current) => ({ ...current, color: event.target.value }))} className="rounded-xl border px-3 py-2" placeholder="Цвет" /></div></section>
             <section><h4 className="text-sm font-bold text-slate-950">Спецификация</h4><ul className="mt-2 space-y-2 text-xs text-slate-600">{products.map((product) => <li key={product.id} className="rounded-xl bg-slate-50 p-2"><b>{product.name}</b> {product.profileFormula} · L={product.lengthMm} мм · {product.quantity} шт{product.areaM2 !== undefined ? ` · ${product.areaM2} м²` : ''}</li>)}</ul></section>
-            {selectedElement ? <section className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm"><h4 className="font-bold text-slate-950">Выбранный объект</h4><p className="mt-1 text-xs text-slate-600">{selectedElement.tool} · {selectedElement.id}</p><button type="button" onClick={() => { setElements((current) => current.filter((element) => element.id !== selectedElement.id)); setSelectedElementId(null); }} className="mt-3 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white">Удалить</button></section> : null}
+            {selectedElement ? <section className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm"><h4 className="font-bold text-slate-950">Выбранный объект</h4><p className="mt-1 text-xs text-slate-600">{selectedElement.tool} · {selectedElement.id}</p><button type="button" onClick={() => { commitElements((current) => current.filter((element) => element.id !== selectedElement.id)); setSelectedElementId(null); }} className="mt-3 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white">Удалить</button></section> : null}
           </aside>
-          <DrawingCanvas width={CANVAS_WIDTH} height={CANVAS_HEIGHT} gridSize={GRID_SIZE} showGrid={showGrid} elements={elements} previewElement={previewElement} mousePoint={mousePoint} snappedPoint={snappedPoint} selectedElementId={selectedElementId} onSelectElement={selectElement} onPointerDown={(rawPoint) => { setMousePoint(rawPoint); const point = snapPoint(rawPoint, snapToGrid); setSnappedPoint(point); if (activeTool === 'select' || activeTool === 'angleDimension') return; if (activeTool === 'text') { addTextElement(point); return; } setDraftStart(point); updatePreview(point, point); }} onPointerMove={(rawPoint) => { setMousePoint(rawPoint); const point = snapPoint(rawPoint, snapToGrid); setSnappedPoint(point); if (draftStart) updatePreview(draftStart, point); }} onPointerUp={(rawPoint) => { const point = snapPoint(rawPoint, snapToGrid); if (!draftStart || activeTool === 'select' || activeTool === 'text' || activeTool === 'profile' || activeTool === 'angleDimension') return; const distance = Math.hypot(point.x - draftStart.x, point.y - draftStart.y); if (distance >= 1) { const baseElement = { id: `drawing-${dealId}-${Date.now()}-${elements.length}`, tool: activeTool, start: draftStart, end: point, lengthMm: Number(distance.toFixed(1)), hemSizeMm: activeTool === 'hem' ? 15 : undefined, text: activeTool === 'dimension' ? `${Number(distance.toFixed(1))} мм` : undefined } as DrawingElement; const requestedLength = activeTool === 'line' || activeTool === 'dimension' ? window.prompt('Точная длина в мм (можно оставить текущую):', String(Number(distance.toFixed(1)))) : null; const parsedLength = requestedLength ? Number(requestedLength.replace(',', '.')) : Number(distance.toFixed(1)); const element = resizeElementToExactLength(baseElement, parsedLength); setElements((current) => [...current, element]); setSelectedElementId(element.id); } setDraftStart(null); setPreviewElement(null); }} />
+          <DrawingCanvas width={CANVAS_WIDTH} height={CANVAS_HEIGHT} gridSize={GRID_SIZE} showGrid={showGrid} elements={elements} previewElement={previewElement} mousePoint={mousePoint} snappedPoint={snappedPoint} selectedElementId={selectedElementId} zoom={zoom} onWheelZoom={(deltaY) => setZoom((current) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, deltaY < 0 ? current * ZOOM_STEP : current / ZOOM_STEP)))} onSelectElement={selectElement} onPointerDown={(rawPoint) => { setMousePoint(rawPoint); const point = snapPoint(rawPoint, snapToGrid); setSnappedPoint(point); if (activeTool === 'select' || activeTool === 'angleDimension') return; if (activeTool === 'text') { addTextElement(point); return; } setDraftStart(point); updatePreview(point, point); }} onPointerMove={(rawPoint) => { setMousePoint(rawPoint); const point = snapPoint(rawPoint, snapToGrid); setSnappedPoint(point); if (draftStart) updatePreview(draftStart, point); }} onPointerUp={(rawPoint) => { const point = snapPoint(rawPoint, snapToGrid); if (!draftStart || activeTool === 'select' || activeTool === 'text' || activeTool === 'profile' || activeTool === 'angleDimension') return; const distance = Math.hypot(point.x - draftStart.x, point.y - draftStart.y); if (distance >= 1) { const baseElement = { id: `drawing-${dealId}-${Date.now()}-${elements.length}`, tool: activeTool, start: draftStart, end: point, lengthMm: Math.round(distance), hemSizeMm: activeTool === 'hem' ? 15 : undefined, text: activeTool === 'dimension' ? `${Math.round(distance)} мм` : undefined } as DrawingElement; const parsedLength = Math.round(distance); const element = resizeElementToExactLength(baseElement, parsedLength); commitElements((current) => [...current, element]); setSelectedElementId(element.id); } setDraftStart(null); setPreviewElement(null); }} />
         </div>
         <div className="hidden">{elements.map((element) => renderElement(element))}</div>
       </div>

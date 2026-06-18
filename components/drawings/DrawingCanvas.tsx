@@ -1,6 +1,6 @@
 'use client';
 
-import type { PointerEvent } from 'react';
+import type { PointerEvent, WheelEvent } from 'react';
 import type { DrawingElement, DrawingPoint, ProfileSegment } from '@/types/crm';
 
 export type DrawingCanvasProps = {
@@ -16,17 +16,19 @@ export type DrawingCanvasProps = {
   onPointerDown: (point: DrawingPoint) => void;
   onPointerMove: (point: DrawingPoint) => void;
   onPointerUp: (point: DrawingPoint) => void;
+  onWheelZoom: (deltaY: number, point: DrawingPoint) => void;
+  zoom: number;
   onSelectElement: (elementId: string) => void;
 };
 
-function getSvgPoint(event: PointerEvent<SVGSVGElement>): DrawingPoint {
+function getSvgPoint(event: PointerEvent<SVGSVGElement> | WheelEvent<SVGSVGElement>): DrawingPoint {
   const rect = event.currentTarget.getBoundingClientRect();
   const scaleX = event.currentTarget.viewBox.baseVal.width / rect.width;
   const scaleY = event.currentTarget.viewBox.baseVal.height / rect.height;
 
   return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY,
+    x: event.currentTarget.viewBox.baseVal.x + (event.clientX - rect.left) * scaleX,
+    y: event.currentTarget.viewBox.baseVal.y + (event.clientY - rect.top) * scaleY,
   };
 }
 
@@ -197,17 +199,24 @@ export function DrawingCanvas({
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onWheelZoom,
+  zoom,
   onSelectElement,
 }: DrawingCanvasProps) {
   const minorGridId = 'drawing-grid-minor';
   const majorGridId = 'drawing-grid-major';
+
+  const viewWidth = width / zoom;
+  const viewHeight = height / zoom;
+  const viewX = (width - viewWidth) / 2;
+  const viewY = (height - viewHeight) / 2;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-inner">
       <svg
         role="img"
         aria-label="Рабочее поле редактора чертежей"
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={`${viewX} ${viewY} ${viewWidth} ${viewHeight}`}
         className="h-[560px] w-full touch-none bg-white"
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -215,6 +224,10 @@ export function DrawingCanvas({
         }}
         onPointerMove={(event) => onPointerMove(getSvgPoint(event))}
         onPointerUp={(event) => onPointerUp(getSvgPoint(event))}
+        onWheel={(event) => {
+          event.preventDefault();
+          onWheelZoom(event.deltaY, getSvgPoint(event));
+        }}
       >
         <defs>
           <pattern id={minorGridId} width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
@@ -248,7 +261,7 @@ export function DrawingCanvas({
             <circle cx={snappedPoint.x} cy={snappedPoint.y} r={5} fill="#2563eb" opacity="0.65" />
           </g>
         ) : null}
-        {mousePoint ? <circle cx={mousePoint.x} cy={mousePoint.y} r={3} fill="#ea580c" /> : null}
+        {mousePoint ? <circle cx={mousePoint.x} cy={mousePoint.y} r={3 / zoom} fill="#ea580c" /> : null}
       </svg>
     </div>
   );
