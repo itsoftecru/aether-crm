@@ -55,8 +55,8 @@ function getSegmentMidPoint(points: DrawingPoint[], index: number): DrawingPoint
 }
 
 
-const LABEL_FONT_SIZE = 13;
-const LABEL_MIN_FONT_SIZE = 9;
+const LABEL_FONT_SIZE = 10;
+const LABEL_MIN_FONT_SIZE = 5;
 const LABEL_LINE_GAP = 10;
 const DIMENSION_STROKE = '#2563eb';
 const ANGLE_STROKE = '#ea580c';
@@ -65,8 +65,8 @@ function getReadableLabelMetrics(label: string, segmentLength: number) {
   const estimatedTextWidth = Math.max(28, label.length * LABEL_FONT_SIZE * 0.62);
   const maxWidthNearLine = Math.max(34, segmentLength - LABEL_LINE_GAP * 2);
   const shouldMoveOutside = estimatedTextWidth > maxWidthNearLine;
-  const fontSize = Math.max(LABEL_MIN_FONT_SIZE, Math.min(LABEL_FONT_SIZE, maxWidthNearLine / Math.max(label.length * 0.62, 1)));
-  return { fontSize, offset: shouldMoveOutside ? 34 : 20 };
+  const fontSize = Math.max(LABEL_MIN_FONT_SIZE, Math.min(LABEL_FONT_SIZE, maxWidthNearLine / Math.max(label.length * 0.82, 1), segmentLength / 8));
+  return { fontSize, offset: shouldMoveOutside ? 26 : 16 };
 }
 
 function getOffsetLinePoints(start: DrawingPoint, end: DrawingPoint, offset: number) {
@@ -103,11 +103,11 @@ function getAngleMarkerGeometry(element: DrawingElement) {
   const sweep = delta >= 0 ? 1 : 0;
   const largeArc = Math.abs(delta) > Math.PI ? 1 : 0;
   const middleAngle = startAngle + delta / 2;
-  const labelRadius = radius + 16;
+  const labelRadius = radius + 10;
   const label = { x: vertex.x + Math.cos(middleAngle) * labelRadius, y: vertex.y + Math.sin(middleAngle) * labelRadius };
   const unitStart = { x: Math.cos(startAngle), y: Math.sin(startAngle) };
   const unitEnd = { x: Math.cos(endAngle), y: Math.sin(endAngle) };
-  const squareSize = Math.min(18, radius * 0.72);
+  const squareSize = Math.min(14, radius * 0.6);
   const p1 = { x: vertex.x + unitStart.x * squareSize, y: vertex.y + unitStart.y * squareSize };
   const p2 = { x: p1.x + unitEnd.x * squareSize, y: p1.y + unitEnd.y * squareSize };
   const p3 = { x: vertex.x + unitEnd.x * squareSize, y: vertex.y + unitEnd.y * squareSize };
@@ -219,7 +219,7 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
         ) : (
           <path d={geometry.path} stroke={ANGLE_STROKE} strokeWidth={1.8} fill="none" strokeDasharray={isPreview ? '7 5' : undefined} />
         )}
-        <text x={geometry.label.x} y={geometry.label.y} textAnchor="middle" className="select-none text-[13px] font-bold" fill={ANGLE_STROKE}>
+        <text x={geometry.label.x} y={geometry.label.y} textAnchor="middle" className="select-none font-bold" fontSize={Math.max(7, Math.min(12, Math.max(16, Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y)) / 4))} fill={ANGLE_STROKE}>
           {element.text || `${geometry.angle}°`}
         </text>
       </g>

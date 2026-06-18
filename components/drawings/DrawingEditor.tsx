@@ -243,7 +243,7 @@ function renderElementToSvg(element: DrawingElement): string {
     const dash = isHemLine ? ' stroke-dasharray="8 4"' : '';
     const extra = isHemLine ? `<line x1="${element.start.x}" y1="${element.start.y + 5}" x2="${element.end.x}" y2="${element.end.y + 5}" stroke="${stroke}" stroke-width="1.4" stroke-dasharray="8 4"/>` : '';
     const label = isHemLine ? `Завальцовка ${element.hemSizeMm ?? 15} мм` : `${length} мм`;
-    return `<g><line x1="${element.start.x}" y1="${element.start.y}" x2="${element.end.x}" y2="${element.end.y}" stroke="${stroke}" stroke-width="2" fill="none"${dash}/>${extra}<text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="${stroke}">${escapeXml(element.text || label)}</text></g>`;
+    return `<g><line x1="${element.start.x}" y1="${element.start.y}" x2="${element.end.x}" y2="${element.end.y}" stroke="${stroke}" stroke-width="2" fill="none"${dash}/>${extra}<text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="10" font-weight="700" fill="${stroke}">${escapeXml(element.text || label)}</text></g>`;
   }
   if (element.tool === 'rectangle') {
     const x = Math.min(element.start.x, element.end.x);
@@ -266,26 +266,26 @@ function renderElementToSvg(element: DrawingElement): string {
       while (delta <= -Math.PI) delta += Math.PI * 2;
       while (delta > Math.PI) delta -= Math.PI * 2;
       const middleAngle = startAngle + delta / 2;
-      const labelX = element.vertex.x + Math.cos(middleAngle) * (radius + 16);
-      const labelY = element.vertex.y + Math.sin(middleAngle) * (radius + 16);
+      const labelX = element.vertex.x + Math.cos(middleAngle) * (radius + 10);
+      const labelY = element.vertex.y + Math.sin(middleAngle) * (radius + 10);
       const isRightAngle = Math.abs(angle - 90) <= 0.5;
       if (isRightAngle) {
         const unitStart = { x: Math.cos(startAngle), y: Math.sin(startAngle) };
         const unitEnd = { x: Math.cos(endAngle), y: Math.sin(endAngle) };
-        const squareSize = Math.min(18, radius * 0.72);
+        const squareSize = Math.min(14, radius * 0.6);
         const p1 = { x: element.vertex.x + unitStart.x * squareSize, y: element.vertex.y + unitStart.y * squareSize };
         const p2 = { x: p1.x + unitEnd.x * squareSize, y: p1.y + unitEnd.y * squareSize };
         const p3 = { x: element.vertex.x + unitEnd.x * squareSize, y: element.vertex.y + unitEnd.y * squareSize };
-        return `<g><polyline points="${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="#ea580c">${escapeXml(element.text || `${angle}°`)}</text></g>`;
+        return `<g><polyline points="${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="10" font-weight="700" fill="#ea580c">${escapeXml(element.text || `${angle}°`)}</text></g>`;
       }
       let largeArc = Math.abs(delta) > Math.PI ? 1 : 0;
       const sweep = delta >= 0 ? 1 : 0;
-      return `<g><path d="M ${element.start.x} ${element.start.y} A ${radius} ${radius} 0 ${largeArc} ${sweep} ${element.end.x} ${element.end.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="#ea580c">${escapeXml(element.text || `${angle}°`)}</text></g>`;
+      return `<g><path d="M ${element.start.x} ${element.start.y} A ${radius} ${radius} 0 ${largeArc} ${sweep} ${element.end.x} ${element.end.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="10" font-weight="700" fill="#ea580c">${escapeXml(element.text || `${angle}°`)}</text></g>`;
     }
     const labelX = (element.start.x + element.end.x) / 2;
     const labelY = (element.start.y + element.end.y) / 2 - 18;
     const label = escapeXml(element.text || `${angle}°`);
-    return `<g><path d="M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/><text x="${labelX}" y="${labelY - 6}" text-anchor="middle" font-size="13" font-weight="700" fill="#ea580c">${label}</text></g>`;
+    return `<g><path d="M ${element.start.x} ${element.start.y} Q ${labelX} ${labelY - 30} ${element.end.x} ${element.end.y}" stroke="#ea580c" stroke-width="1.8" fill="none"/><text x="${labelX}" y="${labelY - 6}" text-anchor="middle" font-size="10" font-weight="700" fill="#ea580c">${label}</text></g>`;
   }
 
   if (element.tool === 'dimension') {
@@ -295,7 +295,7 @@ function renderElementToSvg(element: DrawingElement): string {
     const tick = 6;
     const labelX = (offset.start.x + offset.end.x) / 2;
     const labelY = (offset.start.y + offset.end.y) / 2 - 4;
-    return `<g><line x1="${element.start.x}" y1="${element.start.y}" x2="${offset.start.x + offset.normalX * extension}" y2="${offset.start.y + offset.normalY * extension}" stroke="#2563eb" stroke-width="1.2"/><line x1="${element.end.x}" y1="${element.end.y}" x2="${offset.end.x + offset.normalX * extension}" y2="${offset.end.y + offset.normalY * extension}" stroke="#2563eb" stroke-width="1.2"/><line x1="${offset.start.x}" y1="${offset.start.y}" x2="${offset.end.x}" y2="${offset.end.y}" stroke="#2563eb" stroke-width="1.6"/><line x1="${offset.start.x - offset.normalX * tick}" y1="${offset.start.y - offset.normalY * tick}" x2="${offset.start.x + offset.normalX * tick}" y2="${offset.start.y + offset.normalY * tick}" stroke="#2563eb" stroke-width="1.6"/><line x1="${offset.end.x - offset.normalX * tick}" y1="${offset.end.y - offset.normalY * tick}" x2="${offset.end.x + offset.normalX * tick}" y2="${offset.end.y + offset.normalY * tick}" stroke="#2563eb" stroke-width="1.6"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="13" font-weight="700" fill="#2563eb">${label}</text></g>`;
+    return `<g><line x1="${element.start.x}" y1="${element.start.y}" x2="${offset.start.x + offset.normalX * extension}" y2="${offset.start.y + offset.normalY * extension}" stroke="#2563eb" stroke-width="1.2"/><line x1="${element.end.x}" y1="${element.end.y}" x2="${offset.end.x + offset.normalX * extension}" y2="${offset.end.y + offset.normalY * extension}" stroke="#2563eb" stroke-width="1.2"/><line x1="${offset.start.x}" y1="${offset.start.y}" x2="${offset.end.x}" y2="${offset.end.y}" stroke="#2563eb" stroke-width="1.6"/><line x1="${offset.start.x - offset.normalX * tick}" y1="${offset.start.y - offset.normalY * tick}" x2="${offset.start.x + offset.normalX * tick}" y2="${offset.start.y + offset.normalY * tick}" stroke="#2563eb" stroke-width="1.6"/><line x1="${offset.end.x - offset.normalX * tick}" y1="${offset.end.y - offset.normalY * tick}" x2="${offset.end.x + offset.normalX * tick}" y2="${offset.end.y + offset.normalY * tick}" stroke="#2563eb" stroke-width="1.6"/><text x="${labelX}" y="${labelY}" text-anchor="middle" font-size="10" font-weight="700" fill="#2563eb">${label}</text></g>`;
   }
   return `<text x="${element.start.x}" y="${element.start.y}" font-size="18" font-weight="600" fill="${stroke}">${escapeXml(element.text || 'Текст')}</text>`;
 }
@@ -346,8 +346,8 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
   const toPdfX = (x: number) => margin + 40 + (x - safeBounds.minX) * scale;
   const toPdfY = (y: number) => drawingTop - 40 - (y - safeBounds.minY) * scale;
   const point = (value: DrawingPoint) => ({ x: toPdfX(value.x), y: toPdfY(value.y) });
-  const commands: string[] = ['1 1 1 rg 0 0 0 RG'];
-  commands.push('BT /F1 18 Tf 32 558 Td', `${encodePdfText(payload.title)} Tj`, 'ET');
+  const commands: string[] = ['0 0 0 rg 0 0 0 RG'];
+  commands.push('0 0 0 rg', 'BT /F1 18 Tf 32 558 Td', `${encodePdfText(payload.title)} Tj`, 'ET');
   commands.push('BT /F1 9 Tf 32 540 Td', `${encodePdfText(`Data: ${new Date().toLocaleString('ru-RU')} - Scale auto`) } Tj`, 'ET');
   for (const element of payload.elements) {
     if (element.tool === 'line' || element.tool === 'hem') {
@@ -355,7 +355,7 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
       const b = point(element.end);
       commands.push('0.06 0.09 0.16 RG 2 w', `${a.x.toFixed(2)} ${a.y.toFixed(2)} m ${b.x.toFixed(2)} ${b.y.toFixed(2)} l S`);
       const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
-      commands.push('BT /F1 12 Tf', `${((a.x + b.x) / 2).toFixed(2)} ${((a.y + b.y) / 2 + 12).toFixed(2)} Td`, `${encodePdfText(`${length} mm`)} Tj`, 'ET');
+      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${((a.x + b.x) / 2).toFixed(2)} ${((a.y + b.y) / 2 + 12).toFixed(2)} Td`, `${encodePdfText(`${length} mm`)} Tj`, 'ET');
     }
     if (element.tool === 'dimension') {
       const offset = getOffsetLinePoints(element.start, element.end, 22 / scale);
@@ -370,7 +370,7 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
       commands.push('0.15 0.39 0.92 RG 1.2 w', `${a.x.toFixed(2)} ${a.y.toFixed(2)} m ${(os.x + normalX * extension).toFixed(2)} ${(os.y + normalY * extension).toFixed(2)} l S`, `${b.x.toFixed(2)} ${b.y.toFixed(2)} m ${(oe.x + normalX * extension).toFixed(2)} ${(oe.y + normalY * extension).toFixed(2)} l S`);
       commands.push('0.15 0.39 0.92 RG 1.6 w', `${os.x.toFixed(2)} ${os.y.toFixed(2)} m ${oe.x.toFixed(2)} ${oe.y.toFixed(2)} l S`, `${(os.x - normalX * tick).toFixed(2)} ${(os.y - normalY * tick).toFixed(2)} m ${(os.x + normalX * tick).toFixed(2)} ${(os.y + normalY * tick).toFixed(2)} l S`, `${(oe.x - normalX * tick).toFixed(2)} ${(oe.y - normalY * tick).toFixed(2)} m ${(oe.x + normalX * tick).toFixed(2)} ${(oe.y + normalY * tick).toFixed(2)} l S`);
       const label = toPdfSafeText(element.text || `${Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y))} mm`).replace('мм', 'mm');
-      commands.push('BT /F1 12 Tf', `${((os.x + oe.x) / 2 - 18).toFixed(2)} ${((os.y + oe.y) / 2 + 6).toFixed(2)} Td`, `${encodePdfText(label)} Tj`, 'ET');
+      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${((os.x + oe.x) / 2 - 18).toFixed(2)} ${((os.y + oe.y) / 2 + 6).toFixed(2)} Td`, `${encodePdfText(label)} Tj`, 'ET');
     }
     if (element.tool === 'angleDimension') {
       const a = point(element.start);
@@ -391,7 +391,7 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
         });
         commands.push('0.92 0.32 0.04 RG 1.5 w', `${points.map((item, index) => `${item.x.toFixed(2)} ${item.y.toFixed(2)} ${index === 0 ? 'm' : 'l'}`).join(' ')} S`);
         const middle = points[Math.floor(points.length / 2)];
-        commands.push('BT /F1 12 Tf', `${(middle.x + 6).toFixed(2)} ${(middle.y + 8).toFixed(2)} Td`, `${encodePdfText(`${angle} deg`)} Tj`, 'ET');
+        commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${(middle.x + 6).toFixed(2)} ${(middle.y + 8).toFixed(2)} Td`, `${encodePdfText(`${angle} deg`)} Tj`, 'ET');
       } else {
         commands.push('0.92 0.32 0.04 RG 1.5 w', `${a.x.toFixed(2)} ${a.y.toFixed(2)} m ${b.x.toFixed(2)} ${b.y.toFixed(2)} l S`);
       }
@@ -404,14 +404,14 @@ function createPdfDocument(payload: DrawingSavePayload): Uint8Array {
     }
     if (element.tool === 'text') {
       const a = point(element.start);
-      commands.push('BT /F1 12 Tf', `${a.x.toFixed(2)} ${a.y.toFixed(2)} Td`, `${encodePdfText(element.text || 'Text')} Tj`, 'ET');
+      commands.push('0 0 0 rg', 'BT /F1 12 Tf', `${a.x.toFixed(2)} ${a.y.toFixed(2)} Td`, `${encodePdfText(element.text || 'Text')} Tj`, 'ET');
     }
   }
   commands.push('0.80 0.84 0.90 RG 0.8 w 24 74 m 818 74 l S');
-  commands.push('BT /F1 13 Tf 32 56 Td', `${encodePdfText('Specification') } Tj`, 'ET');
+  commands.push('0 0 0 rg', 'BT /F1 13 Tf 32 56 Td', `${encodePdfText('Specification') } Tj`, 'ET');
   payload.products.slice(0, 4).forEach((product, index) => {
     const line = `${index + 1}. ${product.name} ${product.profileFormula} - L=${product.lengthMm} mm - ${product.quantity} pcs - ${product.material} ${product.thicknessMm} mm - ${product.color}`;
-    commands.push('BT /F1 9 Tf', `32 ${40 - index * 11} Td`, `${encodePdfText(line)} Tj`, 'ET');
+    commands.push('0 0 0 rg', 'BT /F1 9 Tf', `32 ${40 - index * 11} Td`, `${encodePdfText(line)} Tj`, 'ET');
   });
   const stream = commands.join('\n');
   const objects = [
