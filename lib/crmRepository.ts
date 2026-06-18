@@ -776,4 +776,140 @@ export class LocalStorageCrmRepository implements CrmRepository {
   }
 }
 
-export const crmRepository: CrmRepository = new LocalStorageCrmRepository();
+
+type ApiSnapshot = CrmState;
+
+class ApiCrmRepository implements CrmRepository {
+  private migrationPromise: Promise<void> | null = null;
+
+  private async request<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+    const response = await fetch('/api/crm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload }),
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(errorPayload?.error ?? `CRM API вернул статус ${response.status}.`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  private async getSnapshot(): Promise<ApiSnapshot> {
+    await this.ensureLocalStorageMigrated();
+    const response = await fetch('/api/crm', { method: 'GET' });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(errorPayload?.error ?? `CRM API вернул статус ${response.status}.`);
+    }
+
+    return response.json() as Promise<ApiSnapshot>;
+  }
+
+  private async ensureLocalStorageMigrated(): Promise<void> {
+    if (!isBrowserStorageAvailable()) return;
+    if (window.localStorage.getItem(`${CRM_STATE_KEY}:server-migrated`) === 'true') return;
+    this.migrationPromise ??= this.migrateLocalStorageState();
+    await this.migrationPromise;
+  }
+
+  private async migrateLocalStorageState(): Promise<void> {
+    const state = safeParseState(window.localStorage.getItem(CRM_STATE_KEY));
+    if (state) {
+      await this.request<ApiSnapshot>('importSnapshot', state as unknown as Record<string, unknown>);
+    }
+    window.localStorage.setItem(`${CRM_STATE_KEY}:server-migrated`, 'true');
+  }
+
+  async getClients(): Promise<Client[]> {
+    return (await this.getSnapshot()).clients;
+  }
+
+  async getDeals(): Promise<Deal[]> {
+    return (await this.getSnapshot()).deals;
+  }
+
+  async getDealFiles(dealId?: string): Promise<DealFile[]> {
+    const files = (await this.getSnapshot()).dealFiles;
+    return files.filter((file) => !dealId || file.dealId === dealId);
+  }
+
+  async getActivityEvents(): Promise<ActivityEvent[]> {
+    return (await this.getSnapshot()).activityEvents;
+  }
+
+  async getReminders(): Promise<Reminder[]> {
+    return (await this.getSnapshot()).reminders.map(normalizeReminder);
+  }
+
+  async getSettings(): Promise<CrmSettings> {
+    return normalizeSettings((await this.getSnapshot()).settings);
+  }
+
+  async updateSettings(settings: CrmSettings): Promise<CrmSettings> {
+    return this.request<CrmSettings>('updateSettings', { settings });
+  }
+
+  async addDeal(deal: Deal): Promise<Deal> {
+    return this.request<Deal>('addDeal', { deal: normalizeDealFinancialFields(deal) });
+  }
+
+  async updateDeal(dealId: string, patch: Partial<Deal>): Promise<Deal | null> {
+    return this.request<Deal | null>('updateDeal', { dealId, patch });
+  }
+
+  async deleteDeal(dealId: string): Promise<boolean> {
+    return this.request<boolean>('deleteDeal', { dealId });
+  }
+
+  async addClient(client: Client): Promise<Client> {
+    return this.request<Client>('addClient', { client });
+  }
+
+  async updateClient(clientId: string, patch: Partial<Client>): Promise<Client | null> {
+    return this.request<Client | null>('updateClient', { clientId, patch });
+  }
+
+  async deleteClient(clientId: string): Promise<boolean> {
+    return this.request<boolean>('deleteClient', { clientId });
+  }
+
+  async addFile(file: AddDealFileInput): Promise<DealFile> {
+    const { content, ...metadata } = file;
+    const previewUrl = typeof content === 'string' ? content : (content instanceof Blob ? await blobToDataUrl(content) : metadata.previewUrl);
+    return this.request<DealFile>('addFile', { file: { ...metadata, previewUrl: previewUrl ?? '/file.svg' } });
+  }
+
+  async addActivityEvent(event: ActivityEvent): Promise<ActivityEvent> {
+    return this.request<ActivityEvent>('addActivityEvent', { event });
+  }
+
+  async addReminder(reminder: Reminder): Promise<Reminder> {
+    return this.request<Reminder>('addReminder', { reminder: normalizeReminder(reminder) });
+  }
+
+  async updateReminder(reminderId: string, patch: Partial<Reminder>): Promise<Reminder | null> {
+    return this.request<Reminder | null>('updateReminder', { reminderId, patch });
+  }
+
+  async deleteReminder(reminderId: string): Promise<boolean> {
+    return this.request<boolean>('deleteReminder', { reminderId });
+  }
+
+  async completeReminder(reminderId: string): Promise<Reminder | null> {
+    return this.request<Reminder | null>('completeReminder', { reminderId });
+  }
+
+  async updateDealStatus(dealId: string, status: DealStatus): Promise<Deal | null> {
+    return this.request<Deal | null>('updateDealStatus', { dealId, status });
+  }
+
+  async replaceDeals(deals: Deal[]): Promise<Deal[]> {
+    return this.request<Deal[]>('replaceDeals', { deals });
+  }
+}
+
+export const crmRepository: CrmRepository = new ApiCrmRepository();
