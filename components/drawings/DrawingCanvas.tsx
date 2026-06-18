@@ -95,6 +95,7 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
   if (element.tool === 'profile') return renderProfile(element, isPreview, isSelected);
 
   const stroke = isPreview ? '#2563eb' : isSelected ? '#ea580c' : '#0f172a';
+  const isHemLine = element.tool === 'hem' || element.hemSizeMm !== undefined;
   const commonProps = {
     stroke,
     strokeWidth: element.tool === 'dimension' ? 1.6 : isSelected ? 3 : 2,
@@ -102,7 +103,7 @@ export function renderElement(element: DrawingElement, isPreview = false, isSele
     strokeDasharray: isPreview ? '7 5' : element.tool === 'dimension' ? '4 4' : isHemLine ? '8 4' : undefined,
   };
 
-  if (element.tool === 'line') {
+  if (element.tool === 'line' || element.tool === 'hem') {
     const labelX = (element.start.x + element.end.x) / 2;
     const labelY = (element.start.y + element.end.y) / 2 - 8;
     const length = element.lengthMm ?? Math.round(Math.hypot(element.end.x - element.start.x, element.end.y - element.start.y));
