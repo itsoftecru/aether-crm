@@ -268,8 +268,15 @@ function formatDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+const moneyFormatter = new Intl.NumberFormat('ru-RU', {
+  style: 'currency',
+  currency: 'RUB',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
 function formatMoney(amount: number): string {
-  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(amount);
+  return moneyFormatter.format(Number(amount) || 0);
 }
 
 function formatPercent(value: number): string {
@@ -1461,7 +1468,7 @@ export default function HomePage() {
                     </select>
                     <Input value={dealFormValues.owner} onChange={(event) => updateDealFormField('owner', event.target.value)} placeholder="Ответственный *" />
                     <Input type="date" value={dealFormValues.dueDate} onChange={(event) => updateDealFormField('dueDate', event.target.value)} />
-                    <Input type="number" min="0" step="100" value={dealFormValues.revenueAmount || ''} onChange={(event) => updateDealFormField('revenueAmount', event.target.value)} placeholder="Выручка, ₽ *" />
+                    <Input type="number" min="0" step="0.01" value={dealFormValues.revenueAmount || ''} onChange={(event) => updateDealFormField('revenueAmount', event.target.value)} placeholder="Выручка, ₽ *" />
                     <textarea value={dealFormValues.notes} onChange={(event) => updateDealFormField('notes', event.target.value)} placeholder="Заметки" className="min-h-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 md:col-span-2" />
                   </div>
 
@@ -1494,12 +1501,12 @@ export default function HomePage() {
                                 <Input value={item.title} onChange={(event) => updateDealCostItem(category, item.id, { title: event.target.value })} placeholder="Наименование" className="md:col-span-3" />
                                 {category === 'employeeLabor' ? (
                                   <>
-                                    <Input type="number" min="0" step="0.5" value={item.hours ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hours: Number(event.target.value) || 0 })} placeholder="Часы" className="md:col-span-2" />
-                                    <Input type="number" min="0" step="100" value={item.hourlyRate ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hourlyRate: Number(event.target.value) || 0 })} placeholder="Ставка, ₽/ч" className="md:col-span-2" />
+                                    <Input type="number" min="0" step="0.1" value={item.hours ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hours: Number(event.target.value) || 0 })} placeholder="Часы" className="md:col-span-2" />
+                                    <Input type="number" min="0" step="0.01" value={item.hourlyRate ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { hourlyRate: Number(event.target.value) || 0 })} placeholder="Ставка, ₽/ч" className="md:col-span-2" />
                                     <Input value={formatMoney(calculateDealCostItemTotal(item))} readOnly className="md:col-span-2" />
                                   </>
                                 ) : (
-                                  <Input type="number" min="0" step="100" value={item.amount || ''} onChange={(event) => updateDealCostItem(category, item.id, { amount: Number(event.target.value) || 0 })} placeholder="Сумма, ₽" className="md:col-span-3" />
+                                  <Input type="number" min="0" step="0.01" value={item.amount || ''} onChange={(event) => updateDealCostItem(category, item.id, { amount: Number(event.target.value) || 0 })} placeholder="Сумма, ₽" className="md:col-span-3" />
                                 )}
                                 <Input value={item.comment ?? ''} onChange={(event) => updateDealCostItem(category, item.id, { comment: event.target.value })} placeholder="Комментарий" className={category === 'employeeLabor' ? 'md:col-span-2' : 'md:col-span-5'} />
                                 <Button type="button" variant="outline" size="sm" onClick={() => removeDealCostItem(category, item.id)} className="border-red-200 text-red-700 hover:bg-red-50 md:col-span-1">
