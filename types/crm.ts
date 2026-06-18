@@ -113,6 +113,7 @@ export type DrawingElement = {
   tool: Exclude<DrawingTool, 'select'>;
   start: DrawingPoint;
   end: DrawingPoint;
+  vertex?: DrawingPoint;
   text?: string;
   profile?: ProductProfile;
   lengthMm?: number;
